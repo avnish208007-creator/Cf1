@@ -49,6 +49,7 @@ interface JobContextType {
   updateQueueItemStatus: (queueItemId: string, status: QueueItem['status']) => Promise<void>;
   deleteClip: (clipId: string) => Promise<void>;
   dismissJob: (jobId: string) => Promise<void>;
+  resetDiscoveryData: () => Promise<void>;
 }
 
 const JobContext = createContext<JobContextType | undefined>(undefined);
@@ -77,8 +78,26 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           repository.getQueueItems(),
         ]);
 
-      setJobs(storedJobs);
-      const running = storedJobs.find(
+      // Clean up zombie jobs older than 2 minutes that never terminated
+      const now = Date.now();
+      const validJobs = storedJobs.map((j) => {
+        if (j.status !== 'completed' && j.status !== 'failed') {
+          const ageMs = now - new Date(j.createdAt).getTime();
+          if (ageMs > 2 * 60 * 1000) {
+            return {
+              ...j,
+              status: 'failed' as const,
+              currentStep: 'Job timed out or interrupted.',
+              errorMessage: 'Operation timed out.',
+              completedAt: new Date().toISOString(),
+            };
+          }
+        }
+        return j;
+      });
+
+      setJobs(validJobs);
+      const running = validJobs.find(
         (j) => j.status !== 'completed' && j.status !== 'failed',
       );
       setActiveJob(running || null);
@@ -601,6 +620,12 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setJobs((prev) => prev.filter((j) => j.id !== jobId));
   };
 
+  const resetDiscoveryData = async () => {
+    await repository.resetDiscoveryData();
+    setActiveJob(null);
+    await refreshData();
+  };
+
   return (
     <JobContext.Provider
       value={{
@@ -628,6 +653,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateQueueItemStatus,
         deleteClip,
         dismissJob,
+        resetDiscoveryData,
       }}
     >
       {children}

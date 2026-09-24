@@ -435,5 +435,190 @@ describe('Invidious + YouTube RSS Discovery Pipeline', () => {
       expect(mockRss.monitorChannels).toHaveBeenCalled();
     });
   });
+
+  describe('Timeout, Failover & Error Resilience', () => {
+    it('attempts next instance when an Invidious instance times out', async () => {
+      const manager = new InvidiousInstanceManager([
+        'https://timeout-instance.test',
+        'https://responsive-instance.test',
+      ]);
+
+      global.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('timeout-instance.test')) {
+          const abortError = new Error('The operation was aborted');
+          abortError.name = 'AbortError';
+          return Promise.reject(abortError);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => [{ type: 'channel', author: 'AI Tech', authorId: 'UC999' }],
+        } as Response);
+      });
+
+      const res = await manager.fetchJson<any[]>('/api/v1/search', {
+        searchParams: { q: 'ai', type: 'channel' },
+        timeoutMs: 100,
+        maxRetries: 2,
+      });
+
+      expect(res.data).toBeDefined();
+      expect(res.instanceUsed).toBe('https://responsive-instance.test');
+    });
+
+    it('continues with remaining channels when one RSS channel feed fails', async () => {
+      const provider = new RSSDiscoveryProvider();
+      vi.spyOn(provider, 'fetchChannelFeed').mockImplementation(async (channelId: string) => {
+        if (channelId === 'UC_FAILS') {
+          throw new Error('RSS_REQUEST_FAILED: Timeout fetching feed');
+        }
+        return [
+          {
+            videoId: 'vid_ok_1',
+            channelId: 'UC_WORKS',
+            title: 'AI Robotics Breakthrough',
+            channelTitle: 'Tech Works',
+            publishedAt: '2026-03-24T00:00:00Z',
+            url: 'https://youtube.com/watch?v=vid_ok_1',
+            description: 'AI robotics and machine learning demo.',
+          },
+        ];
+      });
+
+      const channels: MonitoredChannel[] = [
+        {
+          id: 'UC_FAILS',
+          workspaceId: 'ws_test',
+          channelId: 'UC_FAILS',
+          channelName: 'Failing Channel',
+          channelUrl: 'https://youtube.com/channel/UC_FAILS',
+          rssUrl: 'https://youtube.com/feeds/videos.xml?channel_id=UC_FAILS',
+          niche: 'AI technology',
+          relevanceScore: 70,
+          status: 'active',
+          discoveredAt: '2026-03-24T00:00:00Z',
+        },
+        {
+          id: 'UC_WORKS',
+          workspaceId: 'ws_test',
+          channelId: 'UC_WORKS',
+          channelName: 'Working Channel',
+          channelUrl: 'https://youtube.com/channel/UC_WORKS',
+          rssUrl: 'https://youtube.com/feeds/videos.xml?channel_id=UC_WORKS',
+          niche: 'AI technology',
+          relevanceScore: 85,
+          status: 'active',
+          discoveredAt: '2026-03-24T00:00:00Z',
+        },
+      ];
+
+      const result = await provider.monitorChannels(channels, new Set(), 10, mockSettings);
+
+      expect(result.videosChecked).toBe(1);
+      expect(result.videosAccepted).toBe(1);
+      expect(result.newSources.length).toBe(1);
+      expect(result.newSources[0].externalId).toBe('vid_ok_1');
+    });
+
+    it('fails with DISCOVERY_PROVIDER_UNAVAILABLE if all instances fail', async () => {
+      const manager = new InvidiousInstanceManager([
+        'https://down-1.test',
+        'https://down-2.test',
+      ]);
+
+      global.fetch = vi.fn().mockRejectedValue(new Error('Network down'));
+
+      await expect(
+        manager.fetchJson('/api/v1/search', { maxRetries: 1, timeoutMs: 50 }),
+      ).rejects.toThrow(/DISCOVERY_PROVIDER_UNAVAILABLE/);
+    });
+  });
+
+  describe('Discovery Reset', () => {
+    it('resets channels, sources, candidates, and discovery jobs without deleting workspace or settings', async () => {
+      const { LocalStorageRepository } = await import('../../lib/storage/local-storage.repository');
+      const testRepo = new LocalStorageRepository();
+
+      await testRepo.saveWorkspace({
+        id: 'ws_fitness',
+        name: 'My Content Engine',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        settings: {
+          niche: 'Fitness',
+          subtopics: ['Hypertrophy', 'Strength Training'],
+          language: 'en',
+          contentStyle: 'breakdown',
+          captionStyle: 'bold_punchy',
+          brandAccent: '#10b981',
+          subtitlePreferences: {
+            enabled: true,
+            uppercase: true,
+            maxWordsPerLine: 3,
+            position: 'bottom',
+            fontSize: 28,
+          },
+        },
+      });
+
+      await testRepo.saveChannel({
+        id: 'UC_fit_1',
+        workspaceId: 'ws_fitness',
+        channelId: 'UC_fit_1',
+        channelName: 'Fitness Channel',
+        channelUrl: 'https://youtube.com/channel/UC_fit_1',
+        rssUrl: 'https://youtube.com/feeds/videos.xml?channel_id=UC_fit_1',
+        niche: 'Fitness',
+        relevanceScore: 90,
+        status: 'active',
+        discoveredAt: new Date().toISOString(),
+      });
+
+      await testRepo.saveSource({
+        id: 'src_fit_1',
+        workspaceId: 'ws_fitness',
+        externalId: 'fit_1',
+        platform: 'youtube',
+        url: 'https://youtube.com/watch?v=fit_1',
+        title: 'Full Body Workout',
+        channelTitle: 'Fitness Channel',
+        thumbnailUrl: 'https://img.test/fit1.jpg',
+        publishedAt: new Date().toISOString(),
+        duration: 300,
+        description: 'Workout description',
+        discoveredAt: new Date().toISOString(),
+        relevanceScore: 85,
+        relevanceReason: 'Workout video matches fitness niche',
+        status: 'discovered',
+      });
+
+      await testRepo.saveJob({
+        id: 'job_disc_1',
+        type: 'discovery',
+        status: 'completed',
+        currentStep: 'Done',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        logs: [],
+      });
+
+      // Execute discovery reset
+      await testRepo.resetDiscoveryData();
+
+      const channelsAfter = await testRepo.getChannels();
+      const sourcesAfter = await testRepo.getSources();
+      const candidatesAfter = await testRepo.getCandidates();
+      const jobsAfter = await testRepo.getJobs();
+      const wsAfter = await testRepo.getWorkspace();
+
+      expect(channelsAfter.length).toBe(0);
+      expect(sourcesAfter.length).toBe(0);
+      expect(candidatesAfter.length).toBe(0);
+      expect(jobsAfter.length).toBe(0);
+      expect(wsAfter).not.toBeNull();
+      expect(wsAfter?.name).toBe('My Content Engine');
+      expect(wsAfter?.settings.niche).toBe('Fitness');
+    });
+  });
 });
 

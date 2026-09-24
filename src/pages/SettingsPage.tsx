@@ -15,6 +15,7 @@ import {
   CheckCircle,
   XCircle,
   RefreshCw,
+  RotateCcw,
   ShieldCheck,
 } from 'lucide-react';
 
@@ -165,6 +166,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
     }
   };
 
+  const handleResetDiscovery = async () => {
+    if (
+      window.confirm(
+        'This will remove all discovered channels, source videos, candidate moments, and discovery jobs for this workspace. Your niche and branding settings will be kept intact. Proceed?',
+      )
+    ) {
+      const { repository } = await import('../lib/storage');
+      await repository.resetDiscoveryData();
+      alert('Discovery data reset successfully.');
+    }
+  };
+
   const handleReset = async () => {
     if (
       window.confirm(
@@ -175,11 +188,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
       onNavigate('/onboarding');
     }
   };
-
-  // Derive badge state
-  const isKeyConfigured = discoveryStatus?.configured ?? false;
-  const isInvalid = connectionTestResult && !connectionTestResult.success && connectionTestResult.errorCode === 'DISCOVERY_API_KEY_INVALID';
-  const isQuotaExceeded = connectionTestResult && !connectionTestResult.success && connectionTestResult.errorCode === 'DISCOVERY_QUOTA_EXCEEDED';
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-12">
@@ -500,14 +508,24 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
           <p className="text-xs text-rose-200/80 leading-relaxed">
             All workspace metadata, sources, candidate moments, clips, and internal queue items are persisted to Firebase Cloud Firestore and synchronized locally with instant offline cache.
           </p>
-          <button
-            type="button"
-            onClick={handleReset}
-            className="px-3.5 py-1.5 rounded bg-rose-900/50 hover:bg-rose-900/80 text-rose-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Reset Workspace Data & Re-onboard</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <button
+              type="button"
+              onClick={handleResetDiscovery}
+              className="px-3.5 py-1.5 rounded bg-zinc-900 border border-zinc-700 hover:bg-zinc-800 text-zinc-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+              <span>Reset Discovery Data (Keep Workspace Settings)</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-3.5 py-1.5 rounded bg-rose-900/50 hover:bg-rose-900/80 text-rose-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Reset All Workspace Data & Re-onboard</span>
+            </button>
+          </div>
         </div>
       </form>
     </div>

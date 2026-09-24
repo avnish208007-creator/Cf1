@@ -1,7 +1,7 @@
 import { InvidiousDiscoveryProvider } from '../../src/services/discovery/invidious/invidious-discovery.provider';
 import { InvidiousInstanceManager } from '../../src/services/discovery/invidious/instance-manager';
 import { RSSDiscoveryProvider } from '../../src/services/discovery/rss/rss-discovery.provider';
-import { MonitoredChannel, SourceVideo } from '../../src/types';
+import { MonitoredChannel } from '../../src/types';
 
 // Shared instance manager across invocations
 const instanceManager = new InvidiousInstanceManager();
@@ -9,6 +9,8 @@ const invidiousProvider = new InvidiousDiscoveryProvider(instanceManager);
 const rssProvider = new RSSDiscoveryProvider();
 
 export async function handler(event: any) {
+  const startTime = Date.now();
+
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -32,10 +34,15 @@ export async function handler(event: any) {
       };
     }
 
+    const niche = settings.niche.trim();
+    console.log(`[DISCOVERY] started`);
+    console.log(`[DISCOVERY] niche=${niche}`);
+
     const existingExternalSet = new Set<string>(existingExternalIds);
 
-    // 1. Discover relevant channels via Invidious public instance search
+    // 1. Discover relevant channels via Invidious channel search (type=channel only)
     const discoveredCandidates = await invidiousProvider.discoverChannels(settings, 15);
+    console.log(`[DISCOVERY] channels found=${discoveredCandidates.length}`);
 
     // 2. Prepare MonitoredChannel objects from candidates and existing monitored channels
     const channelMap = new Map<string, MonitoredChannel>();
@@ -73,6 +80,7 @@ export async function handler(event: any) {
     }
 
     const allChannels = Array.from(channelMap.values());
+    console.log(`[DISCOVERY] channels accepted=${allChannels.length}`);
 
     if (allChannels.length === 0) {
       return {
@@ -85,13 +93,20 @@ export async function handler(event: any) {
       };
     }
 
-    // 3. Monitor YouTube RSS feeds for new uploads with Video Relevance Scoring
+    console.log(`[DISCOVERY] RSS channels checked=${allChannels.slice(0, 10).length}`);
+
+    // 3. Monitor YouTube RSS feeds for new uploads with independent Video Relevance Scoring
     const monitorResult = await rssProvider.monitorChannels(
       allChannels,
       existingExternalSet,
       10,
       settings,
     );
+
+    console.log(`[DISCOVERY] videos checked=${monitorResult.videosChecked}`);
+    console.log(`[DISCOVERY] videos accepted=${monitorResult.videosAccepted}`);
+    console.log(`[DISCOVERY] videos rejected=${monitorResult.videosRejected}`);
+    console.log(`[DISCOVERY] duplicates skipped=${monitorResult.duplicatesSkipped}`);
 
     // Update channels with last check info
     for (const update of monitorResult.channelUpdates) {
@@ -103,6 +118,9 @@ export async function handler(event: any) {
         if (update.latestVideoTitle) ch.latestVideoTitle = update.latestVideoTitle;
       }
     }
+
+    const durationMs = Date.now() - startTime;
+    console.log(`[DISCOVERY] completed in ${durationMs}ms`);
 
     const result = {
       sources: monitorResult.newSources,
@@ -120,6 +138,7 @@ export async function handler(event: any) {
       providerName: 'Invidious + YouTube RSS',
       queryAnglesUsed: invidiousProvider.generateQueries(settings),
       channels: Array.from(channelMap.values()),
+      durationMs,
     };
 
     return {
@@ -132,10 +151,10 @@ export async function handler(event: any) {
     let errorCode = 'DISCOVERY_REQUEST_FAILED';
     let statusCode = 500;
 
-    if (message.includes('DISCOVERY_INSTANCE_UNAVAILABLE')) {
-      errorCode = 'DISCOVERY_INSTANCE_UNAVAILABLE';
-      statusCode = 503;
-    } else if (message.includes('DISCOVERY_PROVIDER_UNAVAILABLE')) {
+    if (
+      message.includes('DISCOVERY_INSTANCE_UNAVAILABLE') ||
+      message.includes('DISCOVERY_PROVIDER_UNAVAILABLE')
+    ) {
       errorCode = 'DISCOVERY_PROVIDER_UNAVAILABLE';
       statusCode = 503;
     } else if (message.includes('DISCOVERY_RATE_LIMITED')) {
@@ -158,12 +177,17 @@ export async function handler(event: any) {
       statusCode = 502;
     }
 
+    console.error(`[DISCOVERY] failed errorCode=${errorCode} message=${message}`);
+
     return {
       statusCode,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         errorCode,
-        errorMessage: message,
+        errorMessage:
+          errorCode === 'DISCOVERY_PROVIDER_UNAVAILABLE'
+            ? 'All configured Invidious discovery instances are unavailable or rate-limited. Please retry in a few moments.'
+            : message,
       }),
     };
   }

@@ -579,6 +579,45 @@ export class FirestoreRepository implements IRepository {
   }
 
   // --- Utility ---
+  async resetDiscoveryData(): Promise<void> {
+    const ws = await this.getWorkspace();
+    if (ws) {
+      try {
+        const chSnap = await getDocs(collection(db, 'workspaces', ws.id, 'channels'));
+        await Promise.all(chSnap.docs.map((d) => deleteDoc(d.ref)));
+      } catch (err) {
+        console.warn('[FirestoreRepository] Reset channels warning:', err);
+      }
+
+      try {
+        const srcSnap = await getDocs(collection(db, 'workspaces', ws.id, 'sources'));
+        await Promise.all(srcSnap.docs.map((d) => deleteDoc(d.ref)));
+      } catch (err) {
+        console.warn('[FirestoreRepository] Reset sources warning:', err);
+      }
+
+      try {
+        const candSnap = await getDocs(collection(db, 'workspaces', ws.id, 'candidates'));
+        await Promise.all(candSnap.docs.map((d) => deleteDoc(d.ref)));
+      } catch (err) {
+        console.warn('[FirestoreRepository] Reset candidates warning:', err);
+      }
+
+      try {
+        const jobSnap = await getDocs(collection(db, 'workspaces', ws.id, 'jobs'));
+        await Promise.all(
+          jobSnap.docs
+            .filter((d) => (d.data() as Job).type === 'discovery')
+            .map((d) => deleteDoc(d.ref)),
+        );
+      } catch (err) {
+        console.warn('[FirestoreRepository] Reset discovery jobs warning:', err);
+      }
+    }
+
+    await this.localFallback.resetDiscoveryData();
+  }
+
   async resetAll(): Promise<void> {
     await this.clearWorkspace();
     await this.localFallback.resetAll();

@@ -63,5 +63,6 @@ export interface IRepository {
   deleteQueueItem(id: string): Promise<void>;
 
   // Utility
+  resetDiscoveryData(): Promise<void>;
   resetAll(): Promise<void>;
 }

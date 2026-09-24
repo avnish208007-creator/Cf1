@@ -368,9 +368,32 @@ export class LocalStorageRepository implements IRepository {
     );
   }
 
+  async resetDiscoveryData(): Promise<void> {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEYS.CHANNELS);
+      localStorage.removeItem(STORAGE_KEYS.SOURCES);
+      localStorage.removeItem(STORAGE_KEYS.CANDIDATES);
+      const jobs = this.read<Job[]>(STORAGE_KEYS.JOBS, []);
+      this.write(
+        STORAGE_KEYS.JOBS,
+        jobs.filter((j) => j.type !== 'discovery'),
+      );
+    } else {
+      memoryStore.delete(STORAGE_KEYS.CHANNELS);
+      memoryStore.delete(STORAGE_KEYS.SOURCES);
+      memoryStore.delete(STORAGE_KEYS.CANDIDATES);
+      const jobs = this.read<Job[]>(STORAGE_KEYS.JOBS, []);
+      this.write(
+        STORAGE_KEYS.JOBS,
+        jobs.filter((j) => j.type !== 'discovery'),
+      );
+    }
+  }
+
   async resetAll(): Promise<void> {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(STORAGE_KEYS.WORKSPACE);
+      localStorage.removeItem(STORAGE_KEYS.CHANNELS);
       localStorage.removeItem(STORAGE_KEYS.SOURCES);
       localStorage.removeItem(STORAGE_KEYS.CANDIDATES);
       localStorage.removeItem(STORAGE_KEYS.CLIPS);

@@ -24,7 +24,7 @@ export class InvidiousInstanceManager {
 
   private instances: InvidiousInstance[] = [];
   private lastSelectedIdx = 0;
-  private defaultTimeoutMs = 6000;
+  private defaultTimeoutMs = 10000; // 10s per-request timeout
 
   constructor(customInstances?: string[]) {
     this.initInstances(customInstances);
@@ -44,11 +44,11 @@ export class InvidiousInstanceManager {
     // Security: Only accept valid, sanitized HTTPS URLs
     const sanitized = rawList
       .map((url) => this.sanitizeInstanceUrl(url))
-      .filter((url): url is string => !!url);
+      .filter((url): url is string => Boolean(url));
 
     this.instances = sanitized.map((baseUrl) => ({
       baseUrl,
-      healthy: true, // Assume optimistic initial state, verified on check/request
+      healthy: true, // Optimistic initial state
       consecutiveFailures: 0,
     }));
   }
@@ -124,19 +124,19 @@ export class InvidiousInstanceManager {
       const recovered = this.getHealthyInstances();
       if (recovered.length === 0) {
         throw new Error(
-          'DISCOVERY_INSTANCE_UNAVAILABLE: No healthy Invidious discovery instance is currently available. All instances failed or are rate-limited.',
+          'DISCOVERY_PROVIDER_UNAVAILABLE: All configured Invidious discovery instances are unavailable or rate-limited.',
         );
       }
       return recovered[0];
     }
 
-    // Round-robin selection to distribute load and prevent hammering one instance
+    // Round-robin selection to distribute load
     const chosen = available[this.lastSelectedIdx % available.length];
     this.lastSelectedIdx = (this.lastSelectedIdx + 1) % available.length;
     return chosen;
   }
 
-  public async checkHealth(instance: InvidiousInstance, timeoutMs = 4000): Promise<boolean> {
+  public async checkHealth(instance: InvidiousInstance, timeoutMs = 5000): Promise<boolean> {
     const start = Date.now();
     try {
       const controller = new AbortController();
@@ -180,7 +180,7 @@ export class InvidiousInstanceManager {
         instance = this.selectInstance();
       } catch (err: any) {
         throw new Error(
-          `DISCOVERY_INSTANCE_UNAVAILABLE: ${err.message || 'No discovery instances available.'}`,
+          `DISCOVERY_PROVIDER_UNAVAILABLE: ${err.message || 'All configured Invidious discovery instances are unavailable.'}`,
         );
       }
 
@@ -218,7 +218,6 @@ export class InvidiousInstanceManager {
           lastError = new Error(
             `DISCOVERY_RATE_LIMITED: Instance ${instance.baseUrl} returned HTTP 429 Too Many Requests.`,
           );
-          // Exponential backoff wait before failover
           await new Promise((r) => setTimeout(r, 200 * Math.pow(2, attempt)));
           continue;
         }
@@ -248,13 +247,14 @@ export class InvidiousInstanceManager {
           );
         }
 
-        // Exponential backoff before next attempt
         if (attempt < maxRetries) {
           await new Promise((r) => setTimeout(r, 150 * Math.pow(2, attempt)));
         }
       }
     }
 
-    throw lastError || new Error('DISCOVERY_REQUEST_FAILED: All discovery attempts failed.');
+    throw new Error(
+      `DISCOVERY_PROVIDER_UNAVAILABLE: All configured Invidious discovery instances are unavailable or rate-limited. ${lastError ? `(${lastError.message})` : ''}`,
+    );
   }
 }

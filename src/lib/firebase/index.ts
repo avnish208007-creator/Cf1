@@ -20,7 +20,7 @@ import firebaseConfig from '../../../firebase-applet-config.json';
 
 // Silence verbose network-polling & retry warning logs in the client
 try {
-  setLogLevel('error');
+  setLogLevel('silent');
 } catch {
   // ignore if not supported in test environment
 }
@@ -64,16 +64,9 @@ export async function validateFirestoreConnection(): Promise<boolean> {
   try {
     await getDocFromServer(doc(db, '_connection_test', 'ping'));
     return true;
-  } catch (error: any) {
-    if (
-      error?.code === 'unavailable' ||
-      (error instanceof Error &&
-        (error.message.includes('offline') || error.message.includes('unavailable')))
-    ) {
-      // Offline mode is active and handled gracefully
-      return false;
-    }
-    return true;
+  } catch {
+    // Graceful offline fallback
+    return false;
   }
 }
 

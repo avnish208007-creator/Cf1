@@ -41,15 +41,34 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
     analyzeSource,
     activeJob,
     refreshData,
+    resetDiscoveryData,
   } = useJobs();
 
   const [activeTab, setActiveTab] = useState<'channels' | 'sources'>('channels');
   const [isDiscovering, setIsDiscovering] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [isCheckingRss, setIsCheckingRss] = useState(false);
   const [analyzingSourceId, setAnalyzingSourceId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastDiscoveryResult, setLastDiscoveryResult] = useState<DiscoveryResult | null>(null);
   const [rssCheckMessage, setRssCheckMessage] = useState<string | null>(null);
+
+  const handleResetDiscovery = async () => {
+    if (!window.confirm('Reset all discovered channels, source videos, and candidate moments for this workspace? Your niche and settings will be preserved.')) {
+      return;
+    }
+    setIsResetting(true);
+    setErrorMessage(null);
+    setLastDiscoveryResult(null);
+    setRssCheckMessage(null);
+    try {
+      await resetDiscoveryData();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to reset discovery data.');
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   const handleDiscover = async () => {
     setIsDiscovering(true);
@@ -144,6 +163,25 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
         </div>
 
         <div className="flex items-center gap-2.5">
+          <button
+            onClick={handleResetDiscovery}
+            disabled={isResetting || isDiscovering || (channels.length === 0 && sources.length === 0)}
+            className="px-3 py-2 text-xs font-medium rounded-md bg-zinc-900 border border-zinc-800 hover:bg-rose-950/40 hover:border-rose-900/60 hover:text-rose-300 text-zinc-400 transition cursor-pointer disabled:opacity-40 flex items-center gap-1.5"
+            title="Clear discovered channels, sources, and candidates for this workspace"
+          >
+            {isResetting ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Resetting...</span>
+              </>
+            ) : (
+              <>
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset Discovery</span>
+              </>
+            )}
+          </button>
+
           <button
             onClick={handleQuickRssCheck}
             disabled={isCheckingRss || isDiscovering || channels.length === 0}
