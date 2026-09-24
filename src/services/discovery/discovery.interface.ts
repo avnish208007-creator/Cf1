@@ -24,6 +24,9 @@ export interface DiscoveryResult {
   queryAnglesUsed: string[];
   channelsDiscovered?: number;
   channelsAdded?: number;
+  videosChecked?: number;
+  videosAccepted?: number;
+  videosRejected?: number;
   newVideos?: number;
   duplicatesSkipped?: number;
   channels?: MonitoredChannel[];

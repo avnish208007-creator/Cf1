@@ -29,13 +29,18 @@ export class ChannelScorer {
 
     // 1. Niche Relevance Score (Max 35 points)
     let nicheScore = 0;
-    const nicheWords = niche.split(/\s+/).filter((w) => w.length > 2);
+    const nicheWords = niche.split(/\s+/).map((w) => w.trim().replace(/[^a-z0-9]/g, '')).filter((w) => w.length >= 2);
     if (textCorpus.includes(niche)) {
       nicheScore = 35; // Exact niche phrase match
     } else {
       const matchedNicheWords = nicheWords.filter((w) => textCorpus.includes(w));
       if (nicheWords.length > 0) {
-        nicheScore = Math.round((matchedNicheWords.length / nicheWords.length) * 30);
+        const ratio = matchedNicheWords.length / nicheWords.length;
+        nicheScore = Math.round(ratio * 30);
+        // If channel name itself contains niche keyword, boost relevance
+        if (nicheWords.some((w) => raw.channelName.toLowerCase().includes(w))) {
+          nicheScore = Math.max(nicheScore, 25);
+        }
       }
     }
 
@@ -47,7 +52,7 @@ export class ChannelScorer {
         if (textCorpus.includes(st)) {
           matchedCount++;
         } else {
-          const stWords = st.split(/\s+/).filter((w) => w.length > 2);
+          const stWords = st.split(/\s+/).map((w) => w.trim().replace(/[^a-z0-9]/g, '')).filter((w) => w.length >= 2);
           if (stWords.some((w) => textCorpus.includes(w))) {
             matchedCount += 0.5;
           }

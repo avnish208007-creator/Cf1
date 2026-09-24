@@ -241,9 +241,9 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
               </div>
             )}
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-zinc-800/60 text-[11px]">
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-2 border-t border-zinc-800/60 text-[11px]">
             <div>
-              <span className="text-zinc-500">Channels Discovered:</span>{' '}
+              <span className="text-zinc-500">Channels Found:</span>{' '}
               <strong className="text-zinc-200">{lastDiscoveryResult.channelsDiscovered || 0}</strong>
             </div>
             <div>
@@ -251,8 +251,16 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
               <strong className="text-emerald-300">+{lastDiscoveryResult.channelsAdded || 0}</strong>
             </div>
             <div>
-              <span className="text-zinc-500">New Videos:</span>{' '}
-              <strong className="text-emerald-300">+{lastDiscoveryResult.newVideos || lastDiscoveryResult.sources.length}</strong>
+              <span className="text-zinc-500">Videos Checked:</span>{' '}
+              <strong className="text-zinc-200">{lastDiscoveryResult.videosChecked || (lastDiscoveryResult.sources.length + (lastDiscoveryResult.duplicatesSkipped || 0))}</strong>
+            </div>
+            <div>
+              <span className="text-zinc-500">Relevant Accepted:</span>{' '}
+              <strong className="text-emerald-300">+{lastDiscoveryResult.videosAccepted ?? lastDiscoveryResult.sources.length}</strong>
+            </div>
+            <div>
+              <span className="text-zinc-500">Irrelevant Rejected:</span>{' '}
+              <strong className="text-rose-400">{lastDiscoveryResult.videosRejected || 0}</strong>
             </div>
             <div>
               <span className="text-zinc-500">Duplicates Skipped:</span>{' '}

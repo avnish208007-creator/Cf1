@@ -5,8 +5,6 @@ import {
   deleteDoc,
   collection,
   getDocs,
-  query,
-  orderBy,
 } from 'firebase/firestore';
 import { db, ensureAuthUser } from '../firebase';
 import { IRepository } from './repository.interface';
@@ -27,32 +25,46 @@ export class FirestoreRepository implements IRepository {
   private cachedWorkspaceId: string | null = null;
 
   private async getUserId(): Promise<string> {
-    const user = await ensureAuthUser();
-    return user.uid;
+    try {
+      const user = await ensureAuthUser();
+      if (user && user.uid) {
+        return user.uid;
+      }
+    } catch (err) {
+      console.warn('[FirestoreRepository] Auth detection warning:', err);
+    }
+    return 'local_user';
   }
 
   // --- Workspace & Settings ---
   async getWorkspace(): Promise<Workspace | null> {
     try {
-      const userId = await this.getUserId();
-      // First check local cache for active workspace ID
       const localWs = await this.localFallback.getWorkspace();
+      const userId = await this.getUserId();
       const wsId = localWs?.id || this.cachedWorkspaceId || `ws_${userId.substring(0, 16)}`;
 
-      const wsSnap = await getDoc(doc(db, 'workspaces', wsId));
-      if (wsSnap.exists()) {
-        const data = wsSnap.data() as Workspace;
-        this.cachedWorkspaceId = data.id;
-        await this.localFallback.saveWorkspace(data);
-        return data;
+      try {
+        const wsSnap = await getDoc(doc(db, 'workspaces', wsId));
+        if (wsSnap.exists()) {
+          const data = wsSnap.data() as Workspace;
+          this.cachedWorkspaceId = data.id;
+          await this.localFallback.saveWorkspace(data);
+          return data;
+        }
+      } catch (cloudErr) {
+        // Firestore read error (e.g. auth restrictions), rely on local cache
       }
 
       if (localWs) {
-        // Upload local workspace to Firestore to sync
-        const syncedWs: Workspace = { ...localWs, userId };
-        await setDoc(doc(db, 'workspaces', syncedWs.id), syncedWs);
-        this.cachedWorkspaceId = syncedWs.id;
-        return syncedWs;
+        this.cachedWorkspaceId = localWs.id;
+        // Attempt cloud sync in background
+        const syncedWs: Workspace = { ...localWs, userId: localWs.userId || userId };
+        try {
+          await setDoc(doc(db, 'workspaces', syncedWs.id), syncedWs);
+        } catch {
+          // Ignore cloud write error
+        }
+        return localWs;
       }
 
       return null;
@@ -63,8 +75,13 @@ export class FirestoreRepository implements IRepository {
   }
 
   async saveWorkspace(workspace: Workspace): Promise<void> {
-    const userId = await this.getUserId();
-    const wsWithUser = { ...workspace, userId };
+    let userId = 'local_user';
+    try {
+      userId = await this.getUserId();
+    } catch {
+      // safe fallback
+    }
+    const wsWithUser = { ...workspace, userId: workspace.userId || userId };
     this.cachedWorkspaceId = workspace.id;
 
     await this.localFallback.saveWorkspace(wsWithUser);
@@ -76,8 +93,13 @@ export class FirestoreRepository implements IRepository {
   }
 
   async updateSettings(settings: Partial<WorkspaceSettings>): Promise<Workspace> {
-    const current = await this.getWorkspace();
-    if (!current) throw new Error('No workspace active to update settings.');
+    let current = await this.getWorkspace();
+    if (!current) {
+      current = await this.localFallback.getWorkspace();
+    }
+    if (!current) {
+      throw new Error('No workspace active to update settings.');
+    }
 
     const updated: Workspace = {
       ...current,
@@ -108,14 +130,19 @@ export class FirestoreRepository implements IRepository {
       const ws = await this.getWorkspace();
       if (!ws) return await this.localFallback.getChannels();
 
-      const snap = await getDocs(collection(db, 'workspaces', ws.id, 'channels'));
-      const channels: MonitoredChannel[] = [];
-      snap.forEach((d) => channels.push(d.data() as MonitoredChannel));
+      try {
+        const snap = await getDocs(collection(db, 'workspaces', ws.id, 'channels'));
+        const channels: MonitoredChannel[] = [];
+        snap.forEach((d) => channels.push(d.data() as MonitoredChannel));
 
-      if (channels.length > 0) {
-        await this.localFallback.saveChannels(channels);
-        return channels;
+        if (channels.length > 0) {
+          await this.localFallback.saveChannels(channels);
+          return channels;
+        }
+      } catch (cloudErr) {
+        // Fallback to local
       }
+
       return await this.localFallback.getChannels();
     } catch (err) {
       return await this.localFallback.getChannels();
@@ -182,14 +209,19 @@ export class FirestoreRepository implements IRepository {
       const ws = await this.getWorkspace();
       if (!ws) return await this.localFallback.getSources();
 
-      const snap = await getDocs(collection(db, 'workspaces', ws.id, 'sources'));
-      const sources: SourceVideo[] = [];
-      snap.forEach((d) => sources.push(d.data() as SourceVideo));
+      try {
+        const snap = await getDocs(collection(db, 'workspaces', ws.id, 'sources'));
+        const sources: SourceVideo[] = [];
+        snap.forEach((d) => sources.push(d.data() as SourceVideo));
 
-      if (sources.length > 0) {
-        await this.localFallback.saveSources(sources);
-        return sources;
+        if (sources.length > 0) {
+          await this.localFallback.saveSources(sources);
+          return sources;
+        }
+      } catch (cloudErr) {
+        // Fallback to local
       }
+
       return await this.localFallback.getSources();
     } catch (err) {
       return await this.localFallback.getSources();
@@ -254,14 +286,19 @@ export class FirestoreRepository implements IRepository {
       const ws = await this.getWorkspace();
       if (!ws) return await this.localFallback.getCandidates();
 
-      const snap = await getDocs(collection(db, 'workspaces', ws.id, 'candidates'));
-      const candidates: ClipCandidate[] = [];
-      snap.forEach((d) => candidates.push(d.data() as ClipCandidate));
+      try {
+        const snap = await getDocs(collection(db, 'workspaces', ws.id, 'candidates'));
+        const candidates: ClipCandidate[] = [];
+        snap.forEach((d) => candidates.push(d.data() as ClipCandidate));
 
-      if (candidates.length > 0) {
-        await this.localFallback.saveCandidates(candidates);
-        return candidates;
+        if (candidates.length > 0) {
+          await this.localFallback.saveCandidates(candidates);
+          return candidates;
+        }
+      } catch (cloudErr) {
+        // Fallback to local
       }
+
       return await this.localFallback.getCandidates();
     } catch (err) {
       return await this.localFallback.getCandidates();
@@ -331,13 +368,18 @@ export class FirestoreRepository implements IRepository {
       const ws = await this.getWorkspace();
       if (!ws) return await this.localFallback.getClips();
 
-      const snap = await getDocs(collection(db, 'workspaces', ws.id, 'clips'));
-      const clips: Clip[] = [];
-      snap.forEach((d) => clips.push(d.data() as Clip));
+      try {
+        const snap = await getDocs(collection(db, 'workspaces', ws.id, 'clips'));
+        const clips: Clip[] = [];
+        snap.forEach((d) => clips.push(d.data() as Clip));
 
-      if (clips.length > 0) {
-        return clips;
+        if (clips.length > 0) {
+          return clips;
+        }
+      } catch (cloudErr) {
+        // Fallback to local
       }
+
       return await this.localFallback.getClips();
     } catch (err) {
       return await this.localFallback.getClips();
@@ -398,13 +440,18 @@ export class FirestoreRepository implements IRepository {
       const ws = await this.getWorkspace();
       if (!ws) return await this.localFallback.getJobs();
 
-      const snap = await getDocs(collection(db, 'workspaces', ws.id, 'jobs'));
-      const jobs: Job[] = [];
-      snap.forEach((d) => jobs.push(d.data() as Job));
+      try {
+        const snap = await getDocs(collection(db, 'workspaces', ws.id, 'jobs'));
+        const jobs: Job[] = [];
+        snap.forEach((d) => jobs.push(d.data() as Job));
 
-      if (jobs.length > 0) {
-        return jobs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        if (jobs.length > 0) {
+          return jobs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        }
+      } catch (cloudErr) {
+        // Fallback to local
       }
+
       return await this.localFallback.getJobs();
     } catch (err) {
       return await this.localFallback.getJobs();
@@ -465,13 +512,18 @@ export class FirestoreRepository implements IRepository {
       const ws = await this.getWorkspace();
       if (!ws) return await this.localFallback.getQueueItems();
 
-      const snap = await getDocs(collection(db, 'workspaces', ws.id, 'queue'));
-      const items: QueueItem[] = [];
-      snap.forEach((d) => items.push(d.data() as QueueItem));
+      try {
+        const snap = await getDocs(collection(db, 'workspaces', ws.id, 'queue'));
+        const items: QueueItem[] = [];
+        snap.forEach((d) => items.push(d.data() as QueueItem));
 
-      if (items.length > 0) {
-        return items.sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+        if (items.length > 0) {
+          return items.sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+        }
+      } catch (cloudErr) {
+        // Fallback to local
       }
+
       return await this.localFallback.getQueueItems();
     } catch (err) {
       return await this.localFallback.getQueueItems();

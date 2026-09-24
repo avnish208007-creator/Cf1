@@ -79,7 +79,7 @@ export class InvidiousDiscoveryProvider implements IDiscoveryProvider {
 
     for (const query of queries) {
       try {
-        // 1. Search for channels directly
+        // Search for channels directly (pure channel discovery)
         const channelRes = await this.instanceManager.fetchJson<any[]>('/api/v1/search', {
           searchParams: {
             q: query,
@@ -91,44 +91,23 @@ export class InvidiousDiscoveryProvider implements IDiscoveryProvider {
         if (Array.isArray(channelRes.data)) {
           for (const item of channelRes.data) {
             if (item.type === 'channel' && item.authorId) {
-              const bestThumb = item.authorThumbnails && item.authorThumbnails.length > 0
-                ? item.authorThumbnails[item.authorThumbnails.length - 1].url
-                : undefined;
+              const bestThumb =
+                item.authorThumbnails && item.authorThumbnails.length > 0
+                  ? item.authorThumbnails[item.authorThumbnails.length - 1].url
+                  : undefined;
 
               rawChannels.push({
                 channelId: item.authorId,
                 channelName: item.author || 'Unknown Channel',
                 channelUrl: item.authorUrl
-                  ? (item.authorUrl.startsWith('http') ? item.authorUrl : `https://www.youtube.com${item.authorUrl}`)
+                  ? item.authorUrl.startsWith('http')
+                    ? item.authorUrl
+                    : `https://www.youtube.com${item.authorUrl}`
                   : `https://www.youtube.com/channel/${item.authorId}`,
                 thumbnail: bestThumb,
                 description: item.description || '',
                 subscriberCount: typeof item.subCount === 'number' ? item.subCount : undefined,
                 videoCount: typeof item.videoCount === 'number' ? item.videoCount : undefined,
-                matchedQuery: query,
-              });
-            }
-          }
-        }
-
-        // 2. Also search for videos to surface high-performing active creators in the niche
-        const videoRes = await this.instanceManager.fetchJson<any[]>('/api/v1/search', {
-          searchParams: {
-            q: query,
-            type: 'video',
-            sort_by: 'relevance',
-          },
-        });
-
-        if (Array.isArray(videoRes.data)) {
-          for (const item of videoRes.data.slice(0, 5)) {
-            if (item.type === 'video' && item.authorId && item.author) {
-              rawChannels.push({
-                channelId: item.authorId,
-                channelName: item.author,
-                channelUrl: item.authorUrl
-                  ? (item.authorUrl.startsWith('http') ? item.authorUrl : `https://www.youtube.com${item.authorUrl}`)
-                  : `https://www.youtube.com/channel/${item.authorId}`,
                 matchedQuery: query,
               });
             }

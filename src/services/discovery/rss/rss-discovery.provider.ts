@@ -1,5 +1,6 @@
 import { SourceVideo, MonitoredChannel, WorkspaceSettings } from '../../../types';
 import { IDiscoveryProvider, DiscoveryResult } from '../discovery.interface';
+import { VideoRelevanceScorer } from '../video-relevance-scorer';
 
 export interface RssEntry {
   videoId: string;
@@ -10,6 +11,24 @@ export interface RssEntry {
   url: string;
   thumbnailUrl?: string;
   description?: string;
+}
+
+export interface ChannelFeedUpdate {
+  channelId: string;
+  latestVideoId?: string;
+  latestVideoTitle?: string;
+  lastSuccessfulCheckAt: string;
+}
+
+export interface MonitorChannelsResult {
+  newSources: SourceVideo[];
+  totalChecked: number;
+  videosChecked: number;
+  videosAccepted: number;
+  videosRejected: number;
+  duplicatesSkipped: number;
+  rejections: Array<{ videoId: string; title: string; reason: string }>;
+  channelUpdates: ChannelFeedUpdate[];
 }
 
 export class RSSDiscoveryProvider implements IDiscoveryProvider {
@@ -188,6 +207,7 @@ export class RSSDiscoveryProvider implements IDiscoveryProvider {
     entry: RssEntry,
     workspaceId: string,
     relevanceScore = 80,
+    relevanceReason?: string,
   ): SourceVideo {
     return {
       id: `src_yt_${entry.videoId}`,
@@ -203,28 +223,30 @@ export class RSSDiscoveryProvider implements IDiscoveryProvider {
       description: entry.description || '',
       discoveredAt: new Date().toISOString(),
       relevanceScore,
-      relevanceReason: `Discovered from monitored YouTube channel RSS feed: ${entry.channelTitle}.`,
+      relevanceReason:
+        relevanceReason ||
+        `Discovered from monitored YouTube channel: ${entry.channelTitle} (Relevance: ${relevanceScore}/100).`,
       status: 'discovered',
     };
   }
 
   /**
-   * Checks multiple monitored channels for new uploads and returns new SourceVideo records.
+   * Checks multiple monitored channels for new uploads and returns filtered, relevant SourceVideo records.
    */
   public async monitorChannels(
     channels: MonitoredChannel[],
     existingExternalIds: Set<string>,
     maxChannelsToCheck = 10,
-  ): Promise<{
-    newSources: SourceVideo[];
-    totalChecked: number;
-    duplicatesSkipped: number;
-    channelUpdates: Array<{ channelId: string; latestVideoId?: string; latestVideoTitle?: string; lastSuccessfulCheckAt: string }>;
-  }> {
+    settings?: WorkspaceSettings,
+  ): Promise<MonitorChannelsResult> {
     const activeChannels = channels.filter((c) => c.status !== 'paused').slice(0, maxChannelsToCheck);
     const newSources: SourceVideo[] = [];
+    let videosChecked = 0;
+    let videosAccepted = 0;
+    let videosRejected = 0;
     let duplicatesSkipped = 0;
-    const channelUpdates: Array<{ channelId: string; latestVideoId?: string; latestVideoTitle?: string; lastSuccessfulCheckAt: string }> = [];
+    const rejections: Array<{ videoId: string; title: string; reason: string }> = [];
+    const channelUpdates: ChannelFeedUpdate[] = [];
 
     for (const ch of activeChannels) {
       try {
@@ -241,14 +263,46 @@ export class RSSDiscoveryProvider implements IDiscoveryProvider {
           });
 
           for (const entry of entries) {
+            videosChecked++;
+
             if (existingExternalIds.has(entry.videoId)) {
               duplicatesSkipped++;
               continue;
             }
 
-            const source = this.normalizeSourceVideo(entry, ch.workspaceId, ch.relevanceScore);
-            newSources.push(source);
-            existingExternalIds.add(entry.videoId);
+            // Score video relevance if workspace settings are provided
+            if (settings && settings.niche) {
+              const relevance = VideoRelevanceScorer.scoreVideo(entry, ch, settings);
+
+              if (!relevance.relevant) {
+                videosRejected++;
+                rejections.push({
+                  videoId: entry.videoId,
+                  title: entry.title,
+                  reason:
+                    relevance.rejectionReason ||
+                    `Video title and description do not sufficiently match active niche "${settings.niche}".`,
+                });
+                continue;
+              }
+
+              videosAccepted++;
+              const relevanceReason = `Score ${relevance.score}/100: ${relevance.reasons.join(' · ')}`;
+              const source = this.normalizeSourceVideo(
+                entry,
+                ch.workspaceId,
+                relevance.score,
+                relevanceReason,
+              );
+              newSources.push(source);
+              existingExternalIds.add(entry.videoId);
+            } else {
+              // Legacy/fallback path when settings are omitted
+              videosAccepted++;
+              const source = this.normalizeSourceVideo(entry, ch.workspaceId, ch.relevanceScore);
+              newSources.push(source);
+              existingExternalIds.add(entry.videoId);
+            }
           }
         } else {
           channelUpdates.push({
@@ -264,7 +318,11 @@ export class RSSDiscoveryProvider implements IDiscoveryProvider {
     return {
       newSources,
       totalChecked: activeChannels.length,
+      videosChecked,
+      videosAccepted,
+      videosRejected,
       duplicatesSkipped,
+      rejections,
       channelUpdates,
     };
   }

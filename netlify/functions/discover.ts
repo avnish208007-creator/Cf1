@@ -85,8 +85,13 @@ export async function handler(event: any) {
       };
     }
 
-    // 3. Monitor YouTube RSS feeds for new uploads
-    const monitorResult = await rssProvider.monitorChannels(allChannels, existingExternalSet, 10);
+    // 3. Monitor YouTube RSS feeds for new uploads with Video Relevance Scoring
+    const monitorResult = await rssProvider.monitorChannels(
+      allChannels,
+      existingExternalSet,
+      10,
+      settings,
+    );
 
     // Update channels with last check info
     for (const update of monitorResult.channelUpdates) {
@@ -101,9 +106,13 @@ export async function handler(event: any) {
 
     const result = {
       sources: monitorResult.newSources,
-      totalDiscovered: monitorResult.newSources.length + monitorResult.duplicatesSkipped,
-      totalAccepted: monitorResult.newSources.length,
-      totalRejected: 0,
+      totalDiscovered: monitorResult.videosChecked,
+      totalAccepted: monitorResult.videosAccepted,
+      totalRejected: monitorResult.videosRejected,
+      videosChecked: monitorResult.videosChecked,
+      videosAccepted: monitorResult.videosAccepted,
+      videosRejected: monitorResult.videosRejected,
+      rejections: monitorResult.rejections,
       channelsDiscovered: discoveredCandidates.length,
       channelsAdded,
       newVideos: monitorResult.newSources.length,

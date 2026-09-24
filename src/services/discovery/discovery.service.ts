@@ -126,6 +126,7 @@ export class DiscoveryService {
       allActiveChannels,
       existingExternalIds,
       this.limits.maxRssRequestsPerRun,
+      settings,
     );
 
     // Update channels with last check info and latest video metadata
@@ -154,9 +155,13 @@ export class DiscoveryService {
 
     return {
       sources: monitorResult.newSources,
-      totalDiscovered: monitorResult.newSources.length + monitorResult.duplicatesSkipped,
-      totalAccepted: monitorResult.newSources.length,
-      totalRejected: 0,
+      totalDiscovered: monitorResult.videosChecked,
+      totalAccepted: monitorResult.videosAccepted,
+      totalRejected: monitorResult.videosRejected,
+      videosChecked: monitorResult.videosChecked,
+      videosAccepted: monitorResult.videosAccepted,
+      videosRejected: monitorResult.videosRejected,
+      rejections: monitorResult.rejections.map((r) => ({ id: r.videoId, title: r.title, reason: r.reason })),
       channelsDiscovered: discoveredCandidates.length,
       channelsAdded,
       newVideos: monitorResult.newSources.length,
@@ -185,10 +190,12 @@ export class DiscoveryService {
     const existingSources = await this.repo.getSources();
     const existingIds = new Set(existingSources.map((s) => s.externalId));
 
+    const ws = await this.repo.getWorkspace();
     const result = await this.rssProvider.monitorChannels(
       active,
       existingIds,
       this.limits.maxRssRequestsPerRun,
+      ws?.settings,
     );
 
     if (result.newSources.length > 0) {
