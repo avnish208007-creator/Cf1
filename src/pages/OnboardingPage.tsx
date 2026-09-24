@@ -25,7 +25,6 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({ onComplete }) =>
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
   const [subtitlesUppercase, setSubtitlesUppercase] = useState(true);
   const [enableDevAuthorizedSource, setEnableDevAuthorizedSource] = useState(true);
-  const [youtubeApiKey, setYoutubeApiKey] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,7 +67,6 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({ onComplete }) =>
         fontSize: 24,
       },
       enableDevAuthorizedSource,
-      youtubeApiKey: youtubeApiKey.trim() || undefined,
     };
 
     try {

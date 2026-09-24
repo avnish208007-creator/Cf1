@@ -8,7 +8,6 @@ import {
 } from '../../types';
 import { RenderRequest, RenderResult } from '../rendering/renderer.interface';
 import { DiscoveryResult } from '../discovery/discovery.interface';
-import { DiscoveryService } from '../discovery/discovery.service';
 import { SourceAnalyzer } from '../analysis/source-analyzer';
 import { MomentDetector } from '../moments/moment-detector';
 import { repository } from '../../lib/storage';
@@ -40,22 +39,34 @@ export class ApiClient {
     return await res.json();
   }
 
-  // --- Discovery ---
+  // --- Discovery Provider Status & Connection Test ---
+  async getDiscoveryStatus(): Promise<{
+    configured: boolean;
+    provider: string;
+    status: 'connected' | 'not_configured';
+  }> {
+    return await this.request('/api/discovery/status', { method: 'GET' });
+  }
+
+  async testDiscoveryConnection(): Promise<{
+    success: boolean;
+    status: string;
+    errorCode?: string;
+    message: string;
+  }> {
+    return await this.request('/api/discovery/status/test', { method: 'POST' });
+  }
+
+  // --- Discovery (Strictly Server-Side) ---
   async discover(
     settings: WorkspaceSettings,
     existingExternalIds: string[] = [],
   ): Promise<DiscoveryResult> {
-    try {
-      return await this.request<DiscoveryResult>('/api/discover', {
-        method: 'POST',
-        body: JSON.stringify({ settings, existingExternalIds }),
-      });
-    } catch (serverErr: any) {
-      // Direct in-browser service fallback if server route is offline or in static preview
-      console.warn('[ApiClient] Server discover fallback to in-browser engine:', serverErr.message);
-      const service = new DiscoveryService(repository);
-      return await service.runDiscovery(settings);
-    }
+    // Server-side discovery execution: API key is a server secret, never sent from client
+    return await this.request<DiscoveryResult>('/api/discover', {
+      method: 'POST',
+      body: JSON.stringify({ settings, existingExternalIds }),
+    });
   }
 
   // --- Source Analysis & Moment Detection ---

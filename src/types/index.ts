@@ -28,8 +28,6 @@ export interface WorkspaceSettings {
   captionStyle: CaptionStyle;
   brandAccent: string;
   subtitlePreferences: SubtitlePreferences;
-  // External Provider Configuration (optional real YouTube Data API v3 key or authorized development mode)
-  youtubeApiKey?: string;
   enableDevAuthorizedSource?: boolean;
 }
 
@@ -308,6 +306,10 @@ export interface QueueItem {
 
 export type AppErrorCode =
   | 'DISCOVERY_PROVIDER_UNAVAILABLE'
+  | 'DISCOVERY_API_KEY_INVALID'
+  | 'DISCOVERY_QUOTA_EXCEEDED'
+  | 'DISCOVERY_REQUEST_FAILED'
+  | 'DISCOVERY_INVALID_NICHE'
   | 'SOURCE_ANALYSIS_UNAVAILABLE'
   | 'MEDIA_UNAVAILABLE'
   | 'MEDIA_SOURCE_UNAVAILABLE'

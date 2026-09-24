@@ -9,6 +9,8 @@ import { handler as renderBackgroundHandler } from './netlify/functions/render-b
 import { handler as jobStatusHandler } from './netlify/functions/job-status';
 import { handler as mediaAcquireHandler } from './netlify/functions/media-acquire';
 import { handler as mediaTestPipelineHandler } from './netlify/functions/media-test-pipeline';
+import { handler as discoveryStatusHandler } from './netlify/functions/discovery-status';
+import { handler as discoveryStatusTestHandler } from './netlify/functions/discovery-status-test';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,6 +70,14 @@ async function createServer() {
   });
 
   // Endpoints mapped to Netlify handlers
+  app.get(
+    ['/api/discovery/status', '/.netlify/functions/discovery-status'],
+    adaptNetlify(discoveryStatusHandler),
+  );
+  app.post(
+    ['/api/discovery/status/test', '/.netlify/functions/discovery-status-test'],
+    adaptNetlify(discoveryStatusTestHandler),
+  );
   app.post(['/api/discover', '/.netlify/functions/discover'], adaptNetlify(discoverHandler));
   app.post(['/api/analyze', '/.netlify/functions/analyze'], adaptNetlify(analyzeHandler));
   app.post(['/api/render', '/.netlify/functions/render'], adaptNetlify(renderHandler));

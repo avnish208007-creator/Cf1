@@ -4,6 +4,7 @@ import { useJobs } from '../context/JobContext';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SourceVideo } from '../types';
 import { DiscoveryResult } from '../services/discovery/discovery.interface';
+import { ApiClient } from '../services/api/client';
 import {
   Compass,
   Sparkles,
@@ -18,11 +19,14 @@ import {
   Flame,
   ShieldCheck,
   Search,
+  Key,
 } from 'lucide-react';
 
 interface DiscoverPageProps {
   onNavigate: (path: string) => void;
 }
+
+const apiClient = new ApiClient();
 
 export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
   const { workspace } = useWorkspace();
@@ -32,6 +36,14 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
   const [analyzingSourceId, setAnalyzingSourceId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastDiscoveryResult, setLastDiscoveryResult] = useState<DiscoveryResult | null>(null);
+  const [isServerConfigured, setIsServerConfigured] = useState<boolean | null>(null);
+
+  React.useEffect(() => {
+    apiClient
+      .getDiscoveryStatus()
+      .then((status) => setIsServerConfigured(status.configured))
+      .catch(() => setIsServerConfigured(false));
+  }, []);
 
   const handleDiscover = async () => {
     setIsDiscovering(true);
@@ -60,11 +72,6 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
       setAnalyzingSourceId(null);
     }
   };
-
-  const isConfigured = Boolean(
-    workspace?.settings.enableDevAuthorizedSource ||
-      (workspace?.settings.youtubeApiKey && workspace.settings.youtubeApiKey.length > 10),
-  );
 
   const analyzedCount = sources.filter((s) => s.status === 'analyzed').length;
 
@@ -125,7 +132,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
           <div className="p-3.5 rounded-lg bg-zinc-900/60 border border-zinc-800/80">
             <span className="text-[11px] font-medium text-zinc-400">Primary Provider</span>
             <div className="text-sm font-semibold text-zinc-200 mt-1 truncate">
-              {workspace?.settings.youtubeApiKey ? 'YouTube Data API v3' : 'Development Media'}
+              YouTube Data API v3 (Server)
             </div>
           </div>
           <div className="p-3.5 rounded-lg bg-zinc-900/60 border border-zinc-800/80">
@@ -155,15 +162,15 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
         </div>
       )}
 
-      {/* Provider Connectivity Banner */}
-      {!isConfigured && (
+      {/* Server Provider Connectivity Banner */}
+      {isServerConfigured === false && (
         <div className="p-4 rounded-md bg-amber-950/40 border border-amber-900/60 text-xs text-amber-200 flex items-start justify-between gap-4">
           <div className="flex items-start gap-2.5">
             <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <span className="font-semibold">Discovery Provider Not Connected</span>
+              <span className="font-semibold">Discovery Server Secret Not Configured</span>
               <p className="text-amber-300/80 text-[11px] mt-0.5 leading-relaxed">
-                ClipFlow requires a genuine discovery source provider. In Workspace Settings, configure your YouTube Data API v3 key or enable the isolated DEVELOPMENT ONLY Authorized Media provider to run the automated pipeline.
+                Production discovery uses the YouTube Data API. Configure <code className="font-mono text-zinc-200">YOUTUBE_API_KEY</code> in the Google AI Studio server Secrets.
               </p>
             </div>
           </div>
@@ -171,7 +178,27 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
             onClick={() => onNavigate('/settings')}
             className="px-3 py-1.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 text-xs font-medium shrink-0 cursor-pointer transition"
           >
-            Settings
+            Check Status
+          </button>
+        </div>
+      )}
+
+      {/* Isolated Development Test Notice */}
+      {workspace?.settings.enableDevAuthorizedSource && (
+        <div className="p-3 rounded-md bg-zinc-900/50 border border-zinc-800 text-xs text-zinc-400 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-950 text-amber-300 border border-amber-800/60">
+              DEV TEST
+            </span>
+            <span>
+              Authorized local media testing enabled for Candidate Rendering validation.
+            </span>
+          </div>
+          <button
+            onClick={() => onNavigate('/candidates')}
+            className="text-xs text-zinc-300 hover:text-white underline cursor-pointer"
+          >
+            Go to Candidates →
           </button>
         </div>
       )}
@@ -201,10 +228,10 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
         <EmptyState
           icon={Compass}
           title="No sources discovered yet"
-          description={`Click "Run Discovery" to automatically scan the "${workspace?.settings.niche}" niche across specified angles, or configure your API key in Settings.`}
+          description={`Click "Run Discovery" to automatically scan the "${workspace?.settings.niche}" niche across specified angles using the server-configured YouTube Data API.`}
           actionLabel="Run Discovery"
           onAction={handleDiscover}
-          secondaryActionLabel="Open Settings"
+          secondaryActionLabel="Provider Settings"
           onSecondaryAction={() => onNavigate('/settings')}
         />
       ) : (

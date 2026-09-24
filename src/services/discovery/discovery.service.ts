@@ -1,27 +1,19 @@
 import { IRepository } from '../../lib/storage/repository.interface';
-import { WorkspaceSettings, SourceVideo } from '../../types';
+import { WorkspaceSettings } from '../../types';
 import { IDiscoveryProvider, DiscoveryResult } from './discovery.interface';
-import { YouTubeDataApiProvider } from './youtube-data.provider';
-import { DevAuthorizedDiscoveryProvider } from './dev-discovery.provider';
 
 export class DiscoveryService {
-  constructor(private repo: IRepository) {}
-
-  private getProvider(settings: WorkspaceSettings): IDiscoveryProvider | null {
-    // YouTube Data API metadata discovery only
-    if (settings.youtubeApiKey && settings.youtubeApiKey.trim().length > 10) {
-      return new YouTubeDataApiProvider(settings.youtubeApiKey.trim());
-    }
-
-    return null;
-  }
+  constructor(
+    private repo: IRepository,
+    private provider?: IDiscoveryProvider | null,
+  ) {}
 
   async runDiscovery(settings: WorkspaceSettings): Promise<DiscoveryResult> {
-    const provider = this.getProvider(settings);
+    const provider = this.provider;
 
     if (!provider || !provider.isConnected) {
       throw new Error(
-        'DISCOVERY_PROVIDER_UNAVAILABLE: YouTube Data API v3 key is required for video discovery. YouTube Data API serves strictly as a metadata and discovery service. Production discovery never injects development test media.',
+        'DISCOVERY_PROVIDER_UNAVAILABLE: YouTube Data API v3 is not configured in the server environment. Add YOUTUBE_API_KEY to the Google AI Studio Secrets. Production discovery never injects development test media.',
       );
     }
 

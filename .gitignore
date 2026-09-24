@@ -6,3 +6,11 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Temporary processing workspaces and media caches
+tmp/
+tmp/processing-workspaces/
+
+# Rendered output media artifacts
+public/outputs/*.mp4
+public/outputs/*.jpg
