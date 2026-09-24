@@ -570,7 +570,7 @@ export const CandidatesPage: React.FC<CandidatesPageProps> = ({ onNavigate }) =>
                                 <span>Authorized Media Source Required to Render</span>
                               </div>
                               <p className="text-[11px] text-zinc-400 leading-relaxed">
-                                YouTube Data API is metadata-only. To comply with YouTube Terms of Service, ClipFlow does not scrape or extract streams from YouTube. Provide an authorized moving media source (AUTHORIZED_DIRECT_URL or AUTHORIZED_STORAGE) to render.
+                                YouTube discovery is metadata-only. To comply with YouTube Terms of Service, ClipFlow does not scrape or extract streams from YouTube. Provide an authorized moving media source (AUTHORIZED_DIRECT_URL or AUTHORIZED_STORAGE) to render.
                               </p>
                             </div>
                             <button

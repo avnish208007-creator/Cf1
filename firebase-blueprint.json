@@ -118,12 +118,36 @@
         "addedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "workspaceId", "clipId", "status", "addedAt"]
+    },
+    "MonitoredChannel": {
+      "title": "MonitoredChannel",
+      "description": "Represents an automated RSS-monitored YouTube channel for a workspace.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "channelId": { "type": "string", "maxLength": 128 },
+        "channelName": { "type": "string", "maxLength": 128 },
+        "channelUrl": { "type": "string", "maxLength": 1024 },
+        "rssUrl": { "type": "string", "maxLength": 1024 },
+        "niche": { "type": "string", "maxLength": 128 },
+        "relevanceScore": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "paused"] },
+        "discoveredAt": { "type": "string", "format": "date-time" },
+        "lastCheckedAt": { "type": "string", "format": "date-time" },
+        "lastSuccessfulCheckAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "channelId", "channelName", "channelUrl", "rssUrl", "niche", "relevanceScore", "status", "discoveredAt"]
     }
   },
   "firestore": {
     "/workspaces/{workspaceId}": {
       "schema": { "$ref": "#/entities/Workspace" },
       "description": "User content workspaces containing niche configuration and preferences."
+    },
+    "/workspaces/{workspaceId}/channels/{channelId}": {
+      "schema": { "$ref": "#/entities/MonitoredChannel" },
+      "description": "Monitored YouTube channels discovered and monitored via RSS feeds."
     },
     "/workspaces/{workspaceId}/sources/{sourceId}": {
       "schema": { "$ref": "#/entities/SourceVideo" },

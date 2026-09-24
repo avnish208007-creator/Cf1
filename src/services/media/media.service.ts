@@ -81,7 +81,7 @@ export class MediaAcquisitionService {
     if (!provider) {
       if (source.platform === 'youtube') {
         throw new Error(
-          `MEDIA_SOURCE_UNAVAILABLE: YouTube watch URL (${source.url}) is a discovery reference only. YouTube Data API does not provide downloadable media, and ClipFlow strictly complies with Terms of Service by never using stream extractors, scrapers, or DRM bypasses. An explicit authorized media source (AUTHORIZED_DIRECT_URL or AUTHORIZED_STORAGE) is required to acquire moving media.`,
+          `MEDIA_SOURCE_UNAVAILABLE: YouTube watch URL (${source.url}) is a discovery reference only. Discovery does not provide downloadable media, and ClipFlow strictly complies with Terms of Service by never using stream extractors, scrapers, or DRM bypasses. An explicit authorized media source (AUTHORIZED_DIRECT_URL or AUTHORIZED_STORAGE) is required to acquire moving media.`,
         );
       }
       throw new Error(

@@ -19,6 +19,7 @@ import {
   Clip,
   Job,
   QueueItem,
+  MonitoredChannel,
 } from '../../types';
 
 export class FirestoreRepository implements IRepository {
@@ -99,6 +100,80 @@ export class FirestoreRepository implements IRepository {
     }
     await this.localFallback.clearWorkspace();
     this.cachedWorkspaceId = null;
+  }
+
+  // --- Monitored Channels ---
+  async getChannels(): Promise<MonitoredChannel[]> {
+    try {
+      const ws = await this.getWorkspace();
+      if (!ws) return await this.localFallback.getChannels();
+
+      const snap = await getDocs(collection(db, 'workspaces', ws.id, 'channels'));
+      const channels: MonitoredChannel[] = [];
+      snap.forEach((d) => channels.push(d.data() as MonitoredChannel));
+
+      if (channels.length > 0) {
+        await this.localFallback.saveChannels(channels);
+        return channels;
+      }
+      return await this.localFallback.getChannels();
+    } catch (err) {
+      return await this.localFallback.getChannels();
+    }
+  }
+
+  async getChannelById(channelId: string): Promise<MonitoredChannel | null> {
+    const channels = await this.getChannels();
+    return channels.find((c) => c.channelId === channelId || c.id === channelId) || null;
+  }
+
+  async saveChannel(channel: MonitoredChannel): Promise<void> {
+    await this.localFallback.saveChannel(channel);
+    try {
+      const ws = await this.getWorkspace();
+      if (ws) {
+        await setDoc(doc(db, 'workspaces', ws.id, 'channels', channel.channelId), {
+          ...channel,
+          id: channel.channelId,
+          workspaceId: ws.id,
+        });
+      }
+    } catch (err) {
+      console.warn('[FirestoreRepository] saveChannel cloud write warning:', err);
+    }
+  }
+
+  async saveChannels(channels: MonitoredChannel[]): Promise<void> {
+    await Promise.all(channels.map((c) => this.saveChannel(c)));
+  }
+
+  async updateChannel(channelId: string, updates: Partial<MonitoredChannel>): Promise<MonitoredChannel> {
+    const updated = await this.localFallback.updateChannel(channelId, updates);
+    try {
+      const ws = await this.getWorkspace();
+      if (ws) {
+        await setDoc(doc(db, 'workspaces', ws.id, 'channels', channelId), {
+          ...updated,
+          id: channelId,
+          workspaceId: ws.id,
+        });
+      }
+    } catch (err) {
+      console.warn('[FirestoreRepository] updateChannel warning:', err);
+    }
+    return updated;
+  }
+
+  async deleteChannel(channelId: string): Promise<void> {
+    await this.localFallback.deleteChannel(channelId);
+    try {
+      const ws = await this.getWorkspace();
+      if (ws) {
+        await deleteDoc(doc(db, 'workspaces', ws.id, 'channels', channelId));
+      }
+    } catch (err) {
+      console.warn('[FirestoreRepository] deleteChannel warning:', err);
+    }
   }
 
   // --- Source Videos ---

@@ -6,11 +6,13 @@ import {
   Clip,
   Job,
   QueueItem,
+  MonitoredChannel,
 } from '../../types';
 import { IRepository } from './repository.interface';
 
 const STORAGE_KEYS = {
   WORKSPACE: 'clipflow:v1:workspace',
+  CHANNELS: 'clipflow:v1:channels',
   SOURCES: 'clipflow:v1:sources',
   CANDIDATES: 'clipflow:v1:candidates',
   CLIPS: 'clipflow:v1:clips',
@@ -80,6 +82,53 @@ export class LocalStorageRepository implements IRepository {
 
   async clearWorkspace(): Promise<void> {
     localStorage.removeItem(STORAGE_KEYS.WORKSPACE);
+  }
+
+  // --- Monitored Channels ---
+
+  async getChannels(): Promise<MonitoredChannel[]> {
+    return this.read<MonitoredChannel[]>(STORAGE_KEYS.CHANNELS, []);
+  }
+
+  async getChannelById(channelId: string): Promise<MonitoredChannel | null> {
+    const list = await this.getChannels();
+    return list.find((c) => c.channelId === channelId || c.id === channelId) || null;
+  }
+
+  async saveChannel(channel: MonitoredChannel): Promise<void> {
+    const list = await this.getChannels();
+    const index = list.findIndex((c) => c.channelId === channel.channelId || c.id === channel.id);
+    if (index >= 0) {
+      list[index] = channel;
+    } else {
+      list.unshift(channel);
+    }
+    this.write(STORAGE_KEYS.CHANNELS, list);
+  }
+
+  async saveChannels(channels: MonitoredChannel[]): Promise<void> {
+    const list = await this.getChannels();
+    const map = new Map<string, MonitoredChannel>(list.map((c) => [c.channelId, c]));
+    for (const ch of channels) {
+      map.set(ch.channelId, ch);
+    }
+    this.write(STORAGE_KEYS.CHANNELS, Array.from(map.values()));
+  }
+
+  async updateChannel(channelId: string, updates: Partial<MonitoredChannel>): Promise<MonitoredChannel> {
+    const list = await this.getChannels();
+    const index = list.findIndex((c) => c.channelId === channelId || c.id === channelId);
+    if (index < 0) throw new Error(`Channel with ID ${channelId} not found.`);
+    const updated: MonitoredChannel = { ...list[index], ...updates };
+    list[index] = updated;
+    this.write(STORAGE_KEYS.CHANNELS, list);
+    return updated;
+  }
+
+  async deleteChannel(channelId: string): Promise<void> {
+    const list = await this.getChannels();
+    const filtered = list.filter((c) => c.channelId !== channelId && c.id !== channelId);
+    this.write(STORAGE_KEYS.CHANNELS, filtered);
   }
 
   // --- Sources ---

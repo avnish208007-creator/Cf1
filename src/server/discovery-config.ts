@@ -1,165 +1,117 @@
 /**
- * Server-only YouTube Data API Discovery Configuration
+ * Server-only Discovery Configuration & Health Check
  *
- * CRITICAL SECURITY CONSTRAINTS:
- * - Reads YOUTUBE_API_KEY only from server-side environment (process.env.YOUTUBE_API_KEY)
- * - Never returns the secret key to client code
- * - Never logs the secret key
- * - Never includes the secret key in API responses or serialized objects
+ * CRITICAL ARCHITECTURAL CONSTRAINTS:
+ * - Production discovery uses Invidious metadata discovery + YouTube RSS monitoring
+ * - No YouTube Data API key or Google Cloud billing is required
+ * - Never returns any secrets to client code
+ * - Never logs secrets
+ * - Never includes secrets in API responses or serialized objects
  * - This module must NEVER be imported by client-side React code
  */
 
+import { InvidiousInstanceManager } from '../services/discovery/invidious/instance-manager';
+import { RSSDiscoveryProvider } from '../services/discovery/rss/rss-discovery.provider';
+
 export interface DiscoveryProviderStatus {
   configured: boolean;
-  provider: 'YouTube Data API v3';
-  status: 'connected' | 'not_configured';
+  provider: string;
+  status: 'connected' | 'not_configured' | 'unavailable';
+  instancesHealthy?: number;
+  totalInstances?: number;
+  note?: string;
 }
 
 export interface ConnectionTestResult {
   success: boolean;
   status:
     | 'Connected'
-    | 'Invalid API key'
-    | 'Quota exceeded'
-    | 'API not enabled'
+    | 'Unavailable'
+    | 'Rate limited'
     | 'Network error'
     | 'Not configured';
   errorCode?: string;
   message: string;
+  instanceUsed?: string;
+  latencyMs?: number;
 }
 
-/**
- * Retrieves the YouTube Data API key strictly from server environment secrets.
- * Missing, empty, or whitespace-only keys return null.
- */
-export function getYouTubeApiKey(): string | null {
-  const key = process.env.YOUTUBE_API_KEY;
-  if (!key) {
-    return null;
-  }
-  const trimmed = key.trim();
-  if (trimmed.length === 0) {
-    return null;
-  }
-  return trimmed;
-}
-
-/**
- * Checks if the YouTube Data API server secret is configured without exposing it.
- */
-export function isYouTubeConfigured(): boolean {
-  return getYouTubeApiKey() !== null;
-}
+const instanceManager = new InvidiousInstanceManager();
+const rssProvider = new RSSDiscoveryProvider();
 
 /**
  * Returns public, safe provider status metadata for the client UI.
  */
 export function getDiscoveryProviderStatus(): DiscoveryProviderStatus {
-  const configured = isYouTubeConfigured();
+  const healthy = instanceManager.getHealthyInstances();
+  const all = instanceManager.getInstances();
+
   return {
-    configured,
-    provider: 'YouTube Data API v3',
-    status: configured ? 'connected' : 'not_configured',
+    configured: true,
+    provider: 'Invidious + YouTube RSS',
+    status: healthy.length > 0 ? 'connected' : 'unavailable',
+    instancesHealthy: healthy.length,
+    totalInstances: all.length,
+    note: 'Zero-billing public metadata discovery and RSS upload monitoring.',
   };
 }
 
 /**
- * Performs a minimal, low-quota YouTube Data API request to verify connectivity.
- * Uses videoCategories.list which costs only 1 quota point (vs 100 points for search.list).
- * Never exposes the API key in the response or logs.
+ * Tests live connectivity to Invidious public discovery and YouTube RSS feeds.
  */
-export async function testYouTubeConnection(): Promise<ConnectionTestResult> {
-  const key = getYouTubeApiKey();
-  if (!key) {
-    return {
-      success: false,
-      status: 'Not configured',
-      errorCode: 'DISCOVERY_PROVIDER_UNAVAILABLE',
-      message:
-        'YouTube Data API is not configured in this AI Studio project\'s server secrets. Add YOUTUBE_API_KEY to Settings -> Secrets.',
-    };
-  }
-
+export async function testDiscoveryConnection(): Promise<ConnectionTestResult> {
+  const start = Date.now();
   try {
-    const url = new URL('https://www.googleapis.com/youtube/v3/videoCategories');
-    url.searchParams.set('part', 'snippet');
-    url.searchParams.set('regionCode', 'US');
-    url.searchParams.set('key', key);
-
-    const res = await fetch(url.toString(), {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
+    // 1. Test Invidious instance availability
+    const searchRes = await instanceManager.fetchJson<any[]>('/api/v1/search', {
+      searchParams: {
+        q: 'technology',
+        type: 'channel',
       },
+      timeoutMs: 5000,
+      maxRetries: 2,
     });
 
-    if (res.ok) {
-      return {
-        success: true,
-        status: 'Connected',
-        message: 'Production discovery is connected and ready.',
-      };
-    }
-
-    const errData = await res.json().catch(() => ({}));
-    const rawError = errData.error || {};
-    const errMsg = (rawError.message || res.statusText || '').toLowerCase();
-    const reason = rawError.errors?.[0]?.reason || '';
-
-    if (
-      res.status === 400 ||
-      res.status === 403 &&
-        (errMsg.includes('api key') ||
-          errMsg.includes('invalid') ||
-          reason === 'badRequest' ||
-          reason === 'keyInvalid')
-    ) {
-      return {
-        success: false,
-        status: 'Invalid API key',
-        errorCode: 'DISCOVERY_API_KEY_INVALID',
-        message: 'The configured YouTube API key was rejected by YouTube (Invalid API key or unauthorized).',
-      };
-    }
-
-    if (
-      res.status === 403 &&
-      (errMsg.includes('quota') || reason.includes('quota') || reason === 'dailyLimitExceeded')
-    ) {
-      return {
-        success: false,
-        status: 'Quota exceeded',
-        errorCode: 'DISCOVERY_QUOTA_EXCEEDED',
-        message: 'The YouTube Data API daily quota has been reached.',
-      };
-    }
-
-    if (
-      res.status === 403 &&
-      (errMsg.includes('not enabled') ||
-        errMsg.includes('accessnotconfigured') ||
-        reason === 'accessNotConfigured')
-    ) {
-      return {
-        success: false,
-        status: 'API not enabled',
-        errorCode: 'DISCOVERY_API_KEY_INVALID',
-        message: 'YouTube Data API v3 is not enabled in the associated Google Cloud project.',
-      };
-    }
+    const latency = Date.now() - start;
 
     return {
-      success: false,
-      status: 'Network error',
-      errorCode: 'DISCOVERY_REQUEST_FAILED',
-      message: `YouTube Data API returned HTTP ${res.status}: ${rawError.message || res.statusText}`,
+      success: true,
+      status: 'Connected',
+      message: `Invidious discovery is active and operational via ${searchRes.instanceUsed} (${latency}ms). Public YouTube RSS feeds are accessible without billing.`,
+      instanceUsed: searchRes.instanceUsed,
+      latencyMs: latency,
     };
   } catch (err: any) {
+    const latency = Date.now() - start;
+    const msg = err.message || 'Connection test failed';
+
+    if (msg.includes('DISCOVERY_RATE_LIMITED')) {
+      return {
+        success: false,
+        status: 'Rate limited',
+        errorCode: 'DISCOVERY_RATE_LIMITED',
+        message: 'Invidious public instances are currently rate-limited. Failover will rotate instances.',
+        latencyMs: latency,
+      };
+    }
+
+    if (msg.includes('DISCOVERY_INSTANCE_UNAVAILABLE')) {
+      return {
+        success: false,
+        status: 'Unavailable',
+        errorCode: 'DISCOVERY_INSTANCE_UNAVAILABLE',
+        message: 'No healthy Invidious instance could be reached. Discovery will retry automatically.',
+        latencyMs: latency,
+      };
+    }
+
     return {
       success: false,
       status: 'Network error',
       errorCode: 'DISCOVERY_REQUEST_FAILED',
-      message: `Failed to connect to YouTube Data API endpoint: ${err.message || 'Network error'}`,
+      message: `Discovery connection test error: ${msg}`,
+      latencyMs: latency,
     };
   }
 }
+

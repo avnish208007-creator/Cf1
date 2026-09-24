@@ -8,6 +8,8 @@ import {
   AuthorizedMediaSource,
   AppErrorCode,
   CandidateMediaState,
+  MonitoredChannel,
+  MonitoredChannelStatus,
 } from '../types';
 import { DiscoveryResult } from '../services/discovery/discovery.interface';
 import { repository } from '../lib/storage';
@@ -20,6 +22,7 @@ interface JobContextType {
   jobs: Job[];
   activeJob: Job | null;
   sources: SourceVideo[];
+  channels: MonitoredChannel[];
   candidates: ClipCandidate[];
   clips: Clip[];
   queueItems: QueueItem[];
@@ -27,6 +30,8 @@ interface JobContextType {
   refreshData: () => Promise<void>;
   // Actions
   runDiscovery: () => Promise<DiscoveryResult | undefined>;
+  updateMonitoredChannelStatus: (channelId: string, status: MonitoredChannelStatus) => Promise<void>;
+  removeMonitoredChannel: (channelId: string) => Promise<void>;
   analyzeSource: (source: SourceVideo) => Promise<void>;
   retryAnalysis: (sourceId: string) => Promise<void>;
   approveCandidate: (candidateId: string) => Promise<void>;
@@ -53,6 +58,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [sources, setSources] = useState<SourceVideo[]>([]);
+  const [channels, setChannels] = useState<MonitoredChannel[]>([]);
   const [candidates, setCandidates] = useState<ClipCandidate[]>([]);
   const [clips, setClips] = useState<Clip[]>([]);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
@@ -61,10 +67,11 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const refreshData = useCallback(async () => {
     try {
-      const [storedJobs, storedSources, storedCandidates, storedClips, storedQueue] =
+      const [storedJobs, storedSources, storedChannels, storedCandidates, storedClips, storedQueue] =
         await Promise.all([
           repository.getJobs(),
           repository.getSources(),
+          repository.getChannels(),
           repository.getCandidates(),
           repository.getClips(),
           repository.getQueueItems(),
@@ -76,6 +83,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
       setActiveJob(running || null);
       setSources(storedSources);
+      setChannels(storedChannels);
       setCandidates(storedCandidates);
       setClips(storedClips);
       setQueueItems(storedQueue);
@@ -155,16 +163,22 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         `Running search probes across subtopics: ${workspace.settings.subtopics.join(', ') || 'general niche'}`,
       );
 
-      const existingSources = await repository.getSources();
+      const [existingSources, existingChannels] = await Promise.all([
+        repository.getSources(),
+        repository.getChannels(),
+      ]);
       const existingIds = existingSources.map((s) => s.externalId);
 
-      const res = await apiClient.discover(workspace.settings, existingIds);
+      const res = await apiClient.discover(workspace.settings, existingIds, existingChannels);
 
+      if (res.channels && res.channels.length > 0) {
+        await repository.saveChannels(res.channels);
+      }
       if (res.sources && res.sources.length > 0) {
         await repository.saveSources(res.sources);
       }
 
-      const summaryText = `Discovery complete. Found ${res.totalDiscovered} total, accepted ${res.totalAccepted || res.sources.length} sources${res.totalRejected ? `, rejected ${res.totalRejected}` : ''} via ${res.providerName}.`;
+      const summaryText = `Discovery complete. Discovered ${res.channelsDiscovered || 0} channels (${res.channelsAdded || 0} added), imported ${res.newVideos || res.sources.length} new videos (${res.duplicatesSkipped || 0} duplicates skipped) via ${res.providerName}.`;
 
       await updateJobState(
         job.id,
@@ -179,18 +193,31 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'failed',
         `Discovery failed: ${err.message}`,
         undefined,
-        err.message?.includes('DISCOVERY_QUOTA_EXCEEDED')
-          ? 'DISCOVERY_QUOTA_EXCEEDED'
-          : err.message?.includes('DISCOVERY_API_KEY_INVALID')
-          ? 'DISCOVERY_API_KEY_INVALID'
+        err.message?.includes('DISCOVERY_INSTANCE_UNAVAILABLE')
+          ? 'DISCOVERY_INSTANCE_UNAVAILABLE'
           : err.message?.includes('DISCOVERY_PROVIDER_UNAVAILABLE')
           ? 'DISCOVERY_PROVIDER_UNAVAILABLE'
+          : err.message?.includes('DISCOVERY_NO_CHANNELS_FOUND')
+          ? 'DISCOVERY_NO_CHANNELS_FOUND'
           : 'DISCOVERY_FAILED',
         err.message,
       );
       await refreshData();
       throw err;
     }
+  };
+
+  const updateMonitoredChannelStatus = async (
+    channelId: string,
+    status: MonitoredChannelStatus,
+  ) => {
+    await repository.updateChannel(channelId, { status });
+    await refreshData();
+  };
+
+  const removeMonitoredChannel = async (channelId: string) => {
+    await repository.deleteChannel(channelId);
+    await refreshData();
   };
 
   // --- 2. Analyze Source & Detect Moments ---
@@ -580,12 +607,15 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         jobs,
         activeJob,
         sources,
+        channels,
         candidates,
         clips,
         queueItems,
         isLoadingData,
         refreshData,
         runDiscovery,
+        updateMonitoredChannelStatus,
+        removeMonitoredChannel,
         analyzeSource,
         retryAnalysis,
         approveCandidate,

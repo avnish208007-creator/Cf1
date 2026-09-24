@@ -5,6 +5,7 @@ import {
   ClipCandidate,
   CandidateRejection,
   Job,
+  MonitoredChannel,
 } from '../../types';
 import { RenderRequest, RenderResult } from '../rendering/renderer.interface';
 import { DiscoveryResult } from '../discovery/discovery.interface';
@@ -43,7 +44,10 @@ export class ApiClient {
   async getDiscoveryStatus(): Promise<{
     configured: boolean;
     provider: string;
-    status: 'connected' | 'not_configured';
+    status: 'connected' | 'not_configured' | 'unavailable';
+    instancesHealthy?: number;
+    totalInstances?: number;
+    note?: string;
   }> {
     return await this.request('/api/discovery/status', { method: 'GET' });
   }
@@ -53,6 +57,8 @@ export class ApiClient {
     status: string;
     errorCode?: string;
     message: string;
+    instanceUsed?: string;
+    latencyMs?: number;
   }> {
     return await this.request('/api/discovery/status/test', { method: 'POST' });
   }
@@ -61,11 +67,27 @@ export class ApiClient {
   async discover(
     settings: WorkspaceSettings,
     existingExternalIds: string[] = [],
+    monitoredChannels: MonitoredChannel[] = [],
   ): Promise<DiscoveryResult> {
-    // Server-side discovery execution: API key is a server secret, never sent from client
     return await this.request<DiscoveryResult>('/api/discover', {
       method: 'POST',
-      body: JSON.stringify({ settings, existingExternalIds }),
+      body: JSON.stringify({ settings, existingExternalIds, monitoredChannels }),
+    });
+  }
+
+  // --- Scheduled RSS Check ---
+  async runScheduledRss(
+    channels: MonitoredChannel[],
+    existingExternalIds: string[] = [],
+  ): Promise<{
+    newSources: SourceVideo[];
+    totalChecked: number;
+    duplicatesSkipped: number;
+    channelUpdates?: Array<{ channelId: string; latestVideoId?: string; latestVideoTitle?: string; lastSuccessfulCheckAt: string }>;
+  }> {
+    return await this.request('/api/discovery/scheduled-rss', {
+      method: 'POST',
+      body: JSON.stringify({ channels, existingExternalIds }),
     });
   }
 

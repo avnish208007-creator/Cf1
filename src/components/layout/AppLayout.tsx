@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { JobBanner } from './JobBanner';
-import { Menu, LogOut } from 'lucide-react';
+import { Menu, LogOut, Radio } from 'lucide-react';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { useJobs } from '../../context/JobContext';
 
 interface AppLayoutProps {
   currentPath: string;
@@ -17,6 +18,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { workspace, resetWorkspace } = useWorkspace();
+  const { channels } = useJobs();
 
   const getPageTitle = (path: string) => {
     switch (path) {
@@ -66,9 +68,18 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
 
           <div className="flex items-center gap-3">
             {workspace && (
-              <div className="hidden sm:flex items-center gap-2 text-xs text-zinc-400">
+              <div className="hidden sm:flex items-center gap-2.5 text-xs text-zinc-400">
                 <span className="text-zinc-500">Niche:</span>
                 <span className="font-medium text-zinc-200">{workspace.settings.niche}</span>
+                <span aria-hidden="true" className="text-zinc-700">·</span>
+                <span className="flex items-center gap-1 text-emerald-400 font-medium">
+                  <Radio className="w-3 h-3" />
+                  <span>{channels.length} Channels</span>
+                </span>
+                <span aria-hidden="true" className="text-zinc-700">·</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-zinc-800 text-zinc-300 font-mono">
+                  Invidious + RSS
+                </span>
               </div>
             )}
             <button

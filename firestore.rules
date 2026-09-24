@@ -61,6 +61,22 @@ service cloud.firestore {
 
       allow delete: if isSignedIn() && isValidId(workspaceId) && existing().userId == request.auth.uid;
 
+      // Subcollection: Channels
+      match /channels/{channelId} {
+        allow get: if isWorkspaceOwner(workspaceId) && isValidId(channelId);
+        allow list: if isWorkspaceOwner(workspaceId);
+        allow create: if isWorkspaceOwner(workspaceId) && isValidId(channelId) &&
+          incoming().id == channelId &&
+          incoming().workspaceId == workspaceId &&
+          incoming().channelId == channelId &&
+          incoming().channelName is string && incoming().channelName.size() <= 128;
+        allow update: if isWorkspaceOwner(workspaceId) && isValidId(channelId) &&
+          incoming().id == existing().id &&
+          incoming().workspaceId == existing().workspaceId &&
+          incoming().channelId == existing().channelId;
+        allow delete: if isWorkspaceOwner(workspaceId) && isValidId(channelId);
+      }
+
       // Subcollection: Sources
       match /sources/{sourceId} {
         allow get: if isWorkspaceOwner(workspaceId) && isValidId(sourceId);

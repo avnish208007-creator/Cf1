@@ -1,18 +1,15 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { YouTubeDataApiProvider } from './youtube-data.provider';
-import { WorkspaceSettings, SourceVideo } from '../../types';
-import { getYouTubeApiKey, isYouTubeConfigured, testYouTubeConnection, getDiscoveryProviderStatus } from '../../server/discovery-config';
-import { handler as discoverHandler } from '../../../netlify/functions/discover';
-import { handler as statusHandler } from '../../../netlify/functions/discovery-status';
-import { handler as testStatusHandler } from '../../../netlify/functions/discovery-status-test';
-import { ApiClient } from '../api/client';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { InvidiousInstanceManager } from './invidious/instance-manager';
+import { RSSDiscoveryProvider } from './rss/rss-discovery.provider';
+import { ChannelScorer } from './channel-scorer';
+import { DiscoveryService } from './discovery.service';
+import { WorkspaceSettings } from '../../types';
+import { getDiscoveryProviderStatus } from '../../server/discovery-config';
 
-describe('YouTube Discovery & Server Secret Architecture', () => {
-  const originalEnv = process.env.YOUTUBE_API_KEY;
-
+describe('Invidious + YouTube RSS Discovery Pipeline', () => {
   const mockSettings: WorkspaceSettings = {
-    niche: 'AI Tools',
-    subtopics: ['Productivity', 'Automation'],
+    niche: 'AI & Machine Learning',
+    subtopics: ['Generative AI', 'LLMs', 'Prompt Engineering'],
     language: 'en',
     contentStyle: 'breakdown',
     captionStyle: 'bold_punchy',
@@ -28,398 +25,245 @@ describe('YouTube Discovery & Server Secret Architecture', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    delete process.env.YOUTUBE_API_KEY;
   });
 
-  afterEach(() => {
-    if (originalEnv !== undefined) {
-      process.env.YOUTUBE_API_KEY = originalEnv;
-    } else {
-      delete process.env.YOUTUBE_API_KEY;
-    }
-  });
-
-  describe('Server Discovery Configuration (Zero-Trust Secret Handling)', () => {
-    it('returns null when YOUTUBE_API_KEY is not defined or empty', () => {
-      delete process.env.YOUTUBE_API_KEY;
-      expect(getYouTubeApiKey()).toBeNull();
-      expect(isYouTubeConfigured()).toBe(false);
-
-      process.env.YOUTUBE_API_KEY = '   ';
-      expect(getYouTubeApiKey()).toBeNull();
-      expect(isYouTubeConfigured()).toBe(false);
-    });
-
-    it('returns trimmed key when YOUTUBE_API_KEY is defined', () => {
-      process.env.YOUTUBE_API_KEY = '  AIzaSyValidServerSecret123  ';
-      expect(getYouTubeApiKey()).toBe('AIzaSyValidServerSecret123');
-      expect(isYouTubeConfigured()).toBe(true);
-    });
-
-    it('getDiscoveryProviderStatus exposes only safe metadata without leaking key', () => {
-      process.env.YOUTUBE_API_KEY = 'AIzaSySecretNeverExposed';
+  describe('Discovery Provider Status & Zero-Billing Architecture', () => {
+    it('reports Invidious + YouTube RSS without requiring any billing or API keys', () => {
       const status = getDiscoveryProviderStatus();
       expect(status.configured).toBe(true);
-      expect(status.provider).toBe('YouTube Data API v3');
+      expect(status.provider).toBe('Invidious + YouTube RSS');
       expect(status.status).toBe('connected');
-      expect(JSON.stringify(status)).not.toContain('AIzaSySecretNeverExposed');
-    });
-
-    it('testYouTubeConnection reports Not Configured when secret is missing', async () => {
-      delete process.env.YOUTUBE_API_KEY;
-      const result = await testYouTubeConnection();
-      expect(result.success).toBe(false);
-      expect(result.status).toBe('Not configured');
-      expect(result.errorCode).toBe('DISCOVERY_PROVIDER_UNAVAILABLE');
-    });
-
-    it('testYouTubeConnection uses minimal videoCategories check and handles success', async () => {
-      process.env.YOUTUBE_API_KEY = 'AIzaSyValidKey';
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ items: [{ id: '1' }] }),
-      } as Response);
-
-      const result = await testYouTubeConnection();
-      expect(result.success).toBe(true);
-      expect(result.status).toBe('Connected');
-      // Verifies low-quota endpoint was used (videoCategories instead of expensive search)
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/videoCategories'),
-        expect.anything(),
-      );
-    });
-
-    it('testYouTubeConnection detects invalid API key safely', async () => {
-      process.env.YOUTUBE_API_KEY = 'AIzaSyBadKey';
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 400,
-        json: async () => ({
-          error: { message: 'API key not valid. Please pass a valid API key.' },
-        }),
-      } as Response);
-
-      const result = await testYouTubeConnection();
-      expect(result.success).toBe(false);
-      expect(result.status).toBe('Invalid API key');
-      expect(result.errorCode).toBe('DISCOVERY_API_KEY_INVALID');
-    });
-
-    it('testYouTubeConnection detects quota exhaustion safely', async () => {
-      process.env.YOUTUBE_API_KEY = 'AIzaSyExhaustedKey';
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 403,
-        json: async () => ({
-          error: { message: 'Quota exceeded for the quota metric.' },
-        }),
-      } as Response);
-
-      const result = await testYouTubeConnection();
-      expect(result.success).toBe(false);
-      expect(result.status).toBe('Quota exceeded');
-      expect(result.errorCode).toBe('DISCOVERY_QUOTA_EXCEEDED');
+      expect(status.totalInstances).toBeGreaterThan(0);
     });
   });
 
-  describe('Netlify / Server Discovery Endpoint (Strict Server Key Enforced)', () => {
-    it('rejects discovery with DISCOVERY_PROVIDER_UNAVAILABLE if server secret is missing', async () => {
-      delete process.env.YOUTUBE_API_KEY;
+  describe('InvidiousInstanceManager', () => {
+    it('manages known public instances with health checks and rotation', () => {
+      const manager = new InvidiousInstanceManager([
+        'https://inv.tux.pizza',
+        'https://invidious.nerdvpn.de',
+      ]);
 
-      const event = {
-        httpMethod: 'POST',
-        body: JSON.stringify({
-          settings: { ...mockSettings, youtubeApiKey: 'attackerKeyAttempt' },
-        }),
-      };
-
-      const res = await discoverHandler(event);
-      expect(res.statusCode).toBe(400);
-      const parsed = JSON.parse(res.body);
-      expect(parsed.errorCode).toBe('DISCOVERY_PROVIDER_UNAVAILABLE');
-      expect(parsed.errorMessage).toContain('YOUTUBE_API_KEY');
+      const instances = manager.getInstances();
+      expect(instances.length).toBe(2);
+      expect(instances[0].baseUrl).toBe('https://inv.tux.pizza');
+      expect(manager.getHealthyInstances().length).toBe(2);
     });
 
-    it('rejects discovery with DISCOVERY_INVALID_NICHE if niche is empty or missing', async () => {
-      process.env.YOUTUBE_API_KEY = 'AIzaSyValidKey';
-
-      const event = {
-        httpMethod: 'POST',
-        body: JSON.stringify({
-          settings: { ...mockSettings, niche: '   ' },
-        }),
-      };
-
-      const res = await discoverHandler(event);
-      expect(res.statusCode).toBe(400);
-      const parsed = JSON.parse(res.body);
-      expect(parsed.errorCode).toBe('DISCOVERY_INVALID_NICHE');
-    });
-
-    it('performs legitimate discovery using server key when configured', async () => {
-      process.env.YOUTUBE_API_KEY = 'AIzaSyServerKey999';
-
-      const searchResponse = {
-        items: [
-          {
-            id: { videoId: 'server_vid_001' },
-            snippet: { title: 'AI Productivity Breakthroughs Tutorial' },
-          },
-        ],
-      };
-
-      const detailsResponse = {
-        items: [
-          {
-            id: 'server_vid_001',
-            snippet: {
-              title: 'AI Productivity Breakthroughs Tutorial: Real Case Studies',
-              channelTitle: 'Tech Hub',
-              thumbnails: { high: { url: 'https://img.youtube.com/vi/server_vid_001/hqdefault.jpg' } },
-              publishedAt: '2026-03-01T12:00:00Z',
-              description: 'Guide on AI tools in modern software work.',
-            },
-            contentDetails: { duration: 'PT12M30S' },
-          },
-        ],
-      };
+    it('marks failing instance as unhealthy and fails over', async () => {
+      const manager = new InvidiousInstanceManager([
+        'https://failing-instance.test',
+        'https://working-instance.test',
+      ]);
 
       global.fetch = vi.fn().mockImplementation((url: string) => {
-        const urlStr = String(url);
-        if (urlStr.includes('/search')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => searchResponse,
-          } as Response);
+        if (url.includes('failing-instance.test')) {
+          return Promise.reject(new Error('Network connection timeout'));
         }
         return Promise.resolve({
           ok: true,
-          json: async () => detailsResponse,
+          status: 200,
+          json: async () => [{ title: 'AI Channel', authorId: 'UC123' }],
         } as Response);
       });
 
-      const event = {
-        httpMethod: 'POST',
-        body: JSON.stringify({ settings: mockSettings, existingExternalIds: [] }),
-      };
+      const res = await manager.fetchJson<any[]>('/api/v1/search', {
+        searchParams: { q: 'ai' },
+        timeoutMs: 1000,
+        maxRetries: 2,
+      });
 
-      const res = await discoverHandler(event);
-      expect(res.statusCode).toBe(200);
-      const data = JSON.parse(res.body);
-      expect(data.sources).toHaveLength(1);
-      expect(data.sources[0].id).toBe('src_yt_server_vid_001');
-      expect(data.sources[0].duration).toBe(750);
-    });
-
-    it('status endpoints return safe structure', async () => {
-      delete process.env.YOUTUBE_API_KEY;
-      const res = await statusHandler({ httpMethod: 'GET' });
-      expect(res.statusCode).toBe(200);
-      const data = JSON.parse(res.body);
-      expect(data.configured).toBe(false);
-      expect(data.status).toBe('not_configured');
+      expect(res.data).toBeDefined();
+      expect(res.instanceUsed).toBe('https://working-instance.test');
+      expect(manager.isHealthy('https://failing-instance.test')).toBe(false);
     });
   });
 
-  describe('ApiClient Discovery Failure Handling (No Silent Fallback)', () => {
-    it('surfaces server error without silently falling back to local or fake media', async () => {
-      const client = new ApiClient();
+  describe('ChannelScorer', () => {
+    it('transparently scores channels based on niche and subtopic matching', () => {
+      const candidate = {
+        channelId: 'UC_AI_Guru_123',
+        channelName: 'AI & Machine Learning Insights',
+        channelUrl: 'https://youtube.com/channel/UC_AI_Guru_123',
+        description: 'Comprehensive tutorials on Generative AI, LLMs, and Neural Networks.',
+        subscriberCount: 250000,
+        videoCount: 150,
+        matchedQuery: 'ai tools',
+      };
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 400,
-        statusText: 'Bad Request',
-        json: async () => ({
-          errorCode: 'DISCOVERY_PROVIDER_UNAVAILABLE',
-          errorMessage: 'YouTube Data API v3 is not configured in the server environment.',
-        }),
-      } as Response);
-
-      await expect(client.discover(mockSettings)).rejects.toThrow(
-        /YouTube Data API v3 is not configured/,
+      const result = ChannelScorer.scoreChannel(
+        candidate,
+        ['ai tools', 'generative ai tutorial'],
+        mockSettings,
       );
+
+      expect(result.relevanceScore).toBeGreaterThanOrEqual(70);
+      expect(result.matchedQueries.length).toBeGreaterThan(0);
+    });
+
+    it('penalizes channels unrelated to the target niche', () => {
+      const candidate = {
+        channelId: 'UC_Cooking_123',
+        channelName: 'Grandma Italian Kitchen',
+        channelUrl: 'https://youtube.com/channel/UC_Cooking_123',
+        description: 'Traditional pasta and sourdough recipes from Tuscany.',
+        subscriberCount: 50000,
+        matchedQuery: 'pasta recipes',
+      };
+
+      const result = ChannelScorer.scoreChannel(
+        candidate,
+        ['ai machine learning'],
+        mockSettings,
+      );
+
+      expect(result.relevanceScore).toBeLessThan(40);
     });
   });
 
-  describe('YouTubeDataApiProvider Core Logic', () => {
-    const validKey = 'AIzaSyFakeValidKey1234567890';
+  describe('RSSDiscoveryProvider', () => {
+    const sampleAtomXml = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <link rel="self" href="http://www.youtube.com/feeds/videos.xml?channel_id=UCv6J_XauvwXvBlSZUQBoTbg"/>
+ <id>yt:channel:UCv6J_XauvwXvBlSZUQBoTbg</id>
+ <yt:channelId>UCv6J_XauvwXvBlSZUQBoTbg</yt:channelId>
+ <title>AI Explained</title>
+ <link rel="alternate" href="https://www.youtube.com/channel/UCv6J_XauvwXvBlSZUQBoTbg"/>
+ <author>
+  <name>AI Explained</name>
+  <uri>https://www.youtube.com/channel/UCv6J_XauvwXvBlSZUQBoTbg</uri>
+ </author>
+ <published>2026-01-10T12:00:00+00:00</published>
+ <entry>
+  <id>yt:video:dQw4w9WgXcQ</id>
+  <yt:videoId>dQw4w9WgXcQ</yt:videoId>
+  <yt:channelId>UCv6J_XauvwXvBlSZUQBoTbg</yt:channelId>
+  <title>DeepSeek V3 Architecture & Breakthroughs Explained</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"/>
+  <author>
+   <name>AI Explained</name>
+   <uri>https://www.youtube.com/channel/UCv6J_XauvwXvBlSZUQBoTbg</uri>
+  </author>
+  <published>2026-03-20T14:30:00+00:00</published>
+  <updated>2026-03-20T15:00:00+00:00</updated>
+  <media:group>
+   <media:title>DeepSeek V3 Architecture & Breakthroughs Explained</media:title>
+   <media:thumbnail url="https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" width="480" height="360"/>
+   <media:description>A comprehensive deep dive into DeepSeek V3 mixture of experts architecture.</media:description>
+  </media:group>
+ </entry>
+</feed>`;
 
-    it('normalizes valid YouTube search and video details responses into SourceVideo records', async () => {
-      const provider = new YouTubeDataApiProvider(validKey);
+    it('builds canonical YouTube Atom RSS url correctly', () => {
+      const provider = new RSSDiscoveryProvider();
+      const url = provider.getFeedUrl('UCv6J_XauvwXvBlSZUQBoTbg');
+      expect(url).toBe('https://www.youtube.com/feeds/videos.xml?channel_id=UCv6J_XauvwXvBlSZUQBoTbg');
+    });
 
-      const searchResponse = {
-        items: [
+    it('parses YouTube Atom XML entries accurately without third-party services', () => {
+      const provider = new RSSDiscoveryProvider();
+      const entries = provider.parseFeedXml(sampleAtomXml);
+
+      expect(entries.length).toBe(1);
+      const entry = entries[0];
+      expect(entry.videoId).toBe('dQw4w9WgXcQ');
+      expect(entry.channelId).toBe('UCv6J_XauvwXvBlSZUQBoTbg');
+      expect(entry.channelTitle).toBe('AI Explained');
+      expect(entry.title).toBe('DeepSeek V3 Architecture & Breakthroughs Explained');
+      expect(entry.url).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+      expect(entry.thumbnailUrl).toBe('https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
+      expect(entry.description).toContain('mixture of experts');
+    });
+
+    it('normalizes RSS entries into authentic SourceVideo records', () => {
+      const provider = new RSSDiscoveryProvider();
+      const entries = provider.parseFeedXml(sampleAtomXml);
+      const source = provider.normalizeSourceVideo(entries[0], 'ws_test_1', 92);
+
+      expect(source.id).toBe('src_yt_dQw4w9WgXcQ');
+      expect(source.externalId).toBe('dQw4w9WgXcQ');
+      expect(source.platform).toBe('youtube');
+      expect(source.title).toBe('DeepSeek V3 Architecture & Breakthroughs Explained');
+      expect(source.relevanceScore).toBe(92);
+      expect(source.status).toBe('discovered');
+    });
+  });
+
+  describe('DiscoveryService (Orchestrator)', () => {
+    it('orchestrates two-step Invidious discovery and RSS feed monitoring', async () => {
+      const mockInvidious = {
+        generateQueries: vi.fn().mockReturnValue(['ai tools', 'generative ai tutorial']),
+        discoverChannels: vi.fn().mockResolvedValue([
           {
-            id: { videoId: 'vid123_abc' },
-            snippet: { title: 'AI Tools for Maximum Productivity Breakdown' },
+            channelId: 'UC_Tech_1',
+            channelName: 'Tech Today',
+            channelUrl: 'https://youtube.com/channel/UC_Tech_1',
+            thumbnail: 'https://img.test/ch1.jpg',
+            description: 'AI & Tech channel',
+            relevanceScore: 88,
+            matchedQueries: ['ai tools'],
+            discoveredAt: new Date().toISOString(),
           },
-        ],
+        ]),
       };
 
-      const detailsResponse = {
-        items: [
-          {
-            id: 'vid123_abc',
-            snippet: {
-              title: 'AI Tools for Maximum Productivity Breakdown: 5 Essential Steps',
-              channelTitle: 'Tech Insights',
-              thumbnails: { high: { url: 'https://img.youtube.com/vi/vid123_abc/hqdefault.jpg' } },
-              publishedAt: '2026-03-01T12:00:00Z',
-              description: 'Comprehensive guide and breakdown on how to leverage AI tools for daily productivity.',
+      const mockRss = {
+        getFeedUrl: vi.fn().mockImplementation((id: string) => `https://www.youtube.com/feeds/videos.xml?channel_id=${id}`),
+        monitorChannels: vi.fn().mockResolvedValue({
+          newSources: [
+            {
+              id: 'src_yt_vid1',
+              externalId: 'vid1',
+              platform: 'youtube',
+              url: 'https://youtube.com/watch?v=vid1',
+              title: 'Top AI Tools in 2026',
+              channelTitle: 'Tech Today',
+              thumbnailUrl: 'https://img.test/vid1.jpg',
+              publishedAt: new Date().toISOString(),
+              duration: 0,
+              description: 'AI tools breakdown',
+              discoveredAt: new Date().toISOString(),
+              relevanceScore: 88,
+              relevanceReason: 'From Tech Today',
+              status: 'discovered',
             },
-            contentDetails: {
-              duration: 'PT8M45S', // 525 seconds
-            },
-          },
-        ],
-      };
-
-      global.fetch = vi.fn().mockImplementation((url: string) => {
-        const urlStr = String(url);
-        if (urlStr.includes('/search')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => searchResponse,
-          } as Response);
-        }
-        return Promise.resolve({
-          ok: true,
-          json: async () => detailsResponse,
-        } as Response);
-      });
-
-      const existingIds = new Set<string>();
-      const result = await provider.discover(mockSettings, existingIds);
-
-      expect(result.sources).toHaveLength(1);
-      expect(result.totalAccepted).toBe(1);
-      expect(result.totalRejected).toBe(0);
-
-      const src = result.sources[0];
-      expect(src.id).toBe('src_yt_vid123_abc');
-      expect(src.externalId).toBe('vid123_abc');
-      expect(src.platform).toBe('youtube');
-      expect(src.url).toBe('https://www.youtube.com/watch?v=vid123_abc');
-      expect(src.title).toBe('AI Tools for Maximum Productivity Breakdown: 5 Essential Steps');
-      expect(src.channelTitle).toBe('Tech Insights');
-      expect(src.duration).toBe(525);
-      expect(src.relevanceScore).toBeGreaterThanOrEqual(70);
-      expect(src.rankScore).toBeGreaterThanOrEqual(50);
-      expect(src.status).toBe('discovered');
-    });
-
-    it('prevents duplicate sources when videoId already exists in database or in-flight query', async () => {
-      const provider = new YouTubeDataApiProvider(validKey);
-
-      const searchResponse = {
-        items: [
-          {
-            id: { videoId: 'existing_vid_999' },
-            snippet: { title: 'Existing Video' },
-          },
-        ],
-      };
-
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => searchResponse,
-      } as Response);
-
-      const existingIds = new Set<string>(['existing_vid_999']);
-      const result = await provider.discover(mockSettings, existingIds);
-
-      expect(result.sources).toHaveLength(0);
-      expect(result.totalAccepted).toBe(0);
-    });
-
-    it('rejects invalid, private, deleted, or too short video results honestly', async () => {
-      const provider = new YouTubeDataApiProvider(validKey);
-
-      const searchResponse = {
-        items: [
-          { id: { videoId: 'del_vid' }, snippet: { title: '[Deleted video]' } },
-          { id: { videoId: 'short_vid' }, snippet: { title: 'Quick 5s AI Tip' } },
-          { id: { videoId: 'no_chan' }, snippet: { title: 'Anonymous Video' } },
-        ],
-      };
-
-      const detailsResponse = {
-        items: [
-          {
-            id: 'del_vid',
-            snippet: { title: '[Deleted video]', channelTitle: 'Channel' },
-            contentDetails: { duration: 'PT5M00S' },
-          },
-          {
-            id: 'short_vid',
-            snippet: { title: 'Quick 5s AI Tip', channelTitle: 'Channel' },
-            contentDetails: { duration: 'PT5S' }, // 5s < 15s minimum
-          },
-          {
-            id: 'no_chan',
-            snippet: { title: 'Anonymous Video', channelTitle: '' },
-            contentDetails: { duration: 'PT2M00S' },
-          },
-        ],
-      };
-
-      global.fetch = vi.fn().mockImplementation((url: string) => {
-        const urlStr = String(url);
-        if (urlStr.includes('/search')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => searchResponse,
-          } as Response);
-        }
-        return Promise.resolve({
-          ok: true,
-          json: async () => detailsResponse,
-        } as Response);
-      });
-
-      const result = await provider.discover(mockSettings, new Set());
-
-      expect(result.sources).toHaveLength(0);
-      expect(result.totalRejected).toBe(3);
-      expect(result.rejections).toHaveLength(3);
-      expect(result.rejections?.[0].reason).toContain('deleted or marked private');
-      expect(result.rejections?.[1].reason).toContain('shorter than minimum');
-      expect(result.rejections?.[2].reason).toContain('Missing channel');
-    });
-
-    it('handles quota exhaustion (403 quotaExceeded) with clear honest error', async () => {
-      const provider = new YouTubeDataApiProvider(validKey);
-
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 403,
-        statusText: 'Forbidden',
-        json: async () => ({
-          error: { message: 'The request cannot be completed because you have exceeded your quota.' },
+          ],
+          totalChecked: 1,
+          duplicatesSkipped: 0,
+          failedChannels: [],
+          channelUpdates: [],
         }),
-      } as Response);
+      };
 
-      await expect(provider.discover(mockSettings, new Set())).rejects.toThrow(
-        /DISCOVERY_QUOTA_EXCEEDED/,
+      const savedChannels: any[] = [];
+      const mockRepo = {
+        getWorkspace: vi.fn().mockResolvedValue({ id: 'ws_test', settings: mockSettings }),
+        getChannels: vi.fn().mockImplementation(async () => [...savedChannels]),
+        getMonitoredChannels: vi.fn().mockImplementation(async () => [...savedChannels]),
+        saveChannel: vi.fn().mockImplementation(async (c: any) => { savedChannels.push(c); }),
+        saveChannels: vi.fn().mockImplementation(async (list: any[]) => { savedChannels.push(...list); }),
+        saveMonitoredChannel: vi.fn().mockResolvedValue(undefined),
+        updateChannel: vi.fn().mockResolvedValue(undefined),
+        getSources: vi.fn().mockResolvedValue([]),
+        getSourceVideos: vi.fn().mockResolvedValue([]),
+        saveSources: vi.fn().mockResolvedValue(undefined),
+        saveSourceVideos: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const service = new DiscoveryService(
+        mockRepo as any,
+        mockInvidious as any,
+        mockRss as any,
       );
-    });
 
-    it('handles invalid API key (400 or 403 keyInvalid) with clear honest error', async () => {
-      const provider = new YouTubeDataApiProvider('AIzaSyInvalidKey');
+      const result = await service.runDiscovery(mockSettings);
 
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 400,
-        statusText: 'Bad Request',
-        json: async () => ({
-          error: { message: 'API key not valid. Please pass a valid API key.' },
-        }),
-      } as Response);
-
-      await expect(provider.discover(mockSettings, new Set())).rejects.toThrow(
-        /DISCOVERY_API_KEY_INVALID/,
-      );
+      expect(result.sources.length).toBe(1);
+      expect(result.channels?.length).toBe(1);
+      expect(result.channelsDiscovered).toBe(1);
+      expect(result.providerName).toBe('Invidious + YouTube RSS');
+      expect(mockInvidious.discoverChannels).toHaveBeenCalled();
+      expect(mockRss.monitorChannels).toHaveBeenCalled();
     });
   });
 });

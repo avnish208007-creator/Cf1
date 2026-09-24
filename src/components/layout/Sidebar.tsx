@@ -25,7 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClose,
 }) => {
   const { workspace } = useWorkspace();
-  const { sources, candidates, clips, queueItems } = useJobs();
+  const { sources, channels, candidates, clips, queueItems } = useJobs();
 
   const navItems = [
     {
@@ -38,7 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       name: 'Discover',
       path: '/discover',
       icon: Compass,
-      count: sources.length > 0 ? sources.length : undefined,
+      count: channels.length > 0 ? channels.length : (sources.length > 0 ? sources.length : undefined),
     },
     {
       name: 'Candidates',
@@ -145,8 +145,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Footer info */}
         <div className="p-4 border-t border-zinc-800/80 text-[11px] text-zinc-500 space-y-1">
           <div className="flex items-center justify-between">
+            <span>Discovery</span>
+            <span className="font-mono text-emerald-400">Invidious + RSS</span>
+          </div>
+          <div className="flex items-center justify-between">
             <span>Database</span>
-            <span className="font-mono text-emerald-400">Firebase Firestore</span>
+            <span className="font-mono text-emerald-400">Cloud Firestore</span>
           </div>
           <div className="flex items-center justify-between">
             <span>Rendering</span>

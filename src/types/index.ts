@@ -304,12 +304,54 @@ export interface QueueItem {
   notes?: string;
 }
 
+export type MonitoredChannelStatus = 'active' | 'paused';
+
+export interface ChannelCandidate {
+  channelId: string;
+  channelName: string;
+  channelUrl: string;
+  thumbnail?: string;
+  description?: string;
+  subscriberCount?: number;
+  videoCount?: number;
+  relevanceScore: number;
+  matchedQueries: string[];
+  discoveredAt: string;
+}
+
+export interface MonitoredChannel {
+  id: string;
+  workspaceId: string;
+  channelId: string;
+  channelName: string;
+  channelUrl: string;
+  rssUrl: string;
+  niche: string;
+  relevanceScore: number;
+  status: MonitoredChannelStatus;
+  discoveredAt: string;
+  lastCheckedAt?: string;
+  lastSuccessfulCheckAt?: string;
+  latestVideoId?: string;
+  latestVideoTitle?: string;
+  latestVideoPublishedAt?: string;
+  matchedQueries?: string[];
+  thumbnailUrl?: string;
+}
+
 export type AppErrorCode =
   | 'DISCOVERY_PROVIDER_UNAVAILABLE'
-  | 'DISCOVERY_API_KEY_INVALID'
-  | 'DISCOVERY_QUOTA_EXCEEDED'
+  | 'DISCOVERY_INSTANCE_UNAVAILABLE'
+  | 'DISCOVERY_REQUEST_TIMEOUT'
+  | 'DISCOVERY_RATE_LIMITED'
   | 'DISCOVERY_REQUEST_FAILED'
   | 'DISCOVERY_INVALID_NICHE'
+  | 'DISCOVERY_NO_CHANNELS_FOUND'
+  | 'DISCOVERY_NO_NEW_VIDEOS'
+  | 'RSS_REQUEST_FAILED'
+  | 'RSS_INVALID_RESPONSE'
+  | 'DISCOVERY_API_KEY_INVALID'
+  | 'DISCOVERY_QUOTA_EXCEEDED'
   | 'SOURCE_ANALYSIS_UNAVAILABLE'
   | 'MEDIA_UNAVAILABLE'
   | 'MEDIA_SOURCE_UNAVAILABLE'

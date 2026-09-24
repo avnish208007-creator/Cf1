@@ -6,6 +6,7 @@ import {
   Clip,
   Job,
   QueueItem,
+  MonitoredChannel,
 } from '../../types';
 
 export interface IRepository {
@@ -14,6 +15,14 @@ export interface IRepository {
   saveWorkspace(workspace: Workspace): Promise<void>;
   updateSettings(settings: Partial<WorkspaceSettings>): Promise<Workspace>;
   clearWorkspace(): Promise<void>;
+
+  // Monitored Channels
+  getChannels(): Promise<MonitoredChannel[]>;
+  getChannelById(channelId: string): Promise<MonitoredChannel | null>;
+  saveChannel(channel: MonitoredChannel): Promise<void>;
+  saveChannels(channels: MonitoredChannel[]): Promise<void>;
+  updateChannel(channelId: string, updates: Partial<MonitoredChannel>): Promise<MonitoredChannel>;
+  deleteChannel(channelId: string): Promise<void>;
 
   // Source Videos
   getSources(): Promise<SourceVideo[]>;

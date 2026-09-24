@@ -1,4 +1,4 @@
-import { SourceVideo, WorkspaceSettings } from '../../types';
+import { SourceVideo, WorkspaceSettings, ChannelCandidate, MonitoredChannel } from '../../types';
 
 export interface DiscoveryQuery {
   niche: string;
@@ -22,6 +22,11 @@ export interface DiscoveryResult {
   rejections?: DiscoveryRejection[];
   providerName: string;
   queryAnglesUsed: string[];
+  channelsDiscovered?: number;
+  channelsAdded?: number;
+  newVideos?: number;
+  duplicatesSkipped?: number;
+  channels?: MonitoredChannel[];
 }
 
 export interface IDiscoveryProvider {

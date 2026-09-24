@@ -51,7 +51,7 @@ export class AuthorizedDirectUrlProvider implements IMediaProvider {
 
     if (this.isYouTubeWatchUrl(mediaUrl)) {
       throw new Error(
-        'MEDIA_SOURCE_UNAVAILABLE: YouTube watch URL is a discovery reference only. YouTube Data API does not provide downloadable media, and ClipFlow strictly complies with Terms of Service by never using stream extractors, scrapers, or DRM bypasses. Provide an explicit AUTHORIZED_DIRECT_URL or AUTHORIZED_STORAGE reference.',
+        'MEDIA_SOURCE_UNAVAILABLE: YouTube watch URL is a discovery reference only. YouTube metadata discovery does not provide downloadable media, and ClipFlow strictly complies with Terms of Service by never using stream extractors, scrapers, or DRM bypasses. Provide an explicit AUTHORIZED_DIRECT_URL or AUTHORIZED_STORAGE reference.',
       );
     }
 

@@ -15,6 +15,7 @@ import {
   AlertCircle,
   Clock,
   ExternalLink,
+  Radio,
 } from 'lucide-react';
 import { Clip } from '../types';
 
@@ -26,6 +27,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   const { workspace } = useWorkspace();
   const {
     sources,
+    channels,
     candidates,
     clips,
     queueItems,
@@ -108,7 +110,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
           className="p-4 rounded-lg bg-zinc-900/60 border border-zinc-800/80 hover:border-zinc-700 transition cursor-pointer"
         >
           <div className="flex items-center justify-between text-zinc-400 text-xs mb-2">
-            <span>Discovered Sources</span>
+            <span>Monitored Channels</span>
+            <Radio className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="text-2xl font-bold font-mono text-zinc-100">
+            {channels.length}
+          </div>
+          <div className="text-[11px] text-zinc-500 mt-1">
+            {channels.filter((c) => c.status === 'active').length} actively checking RSS
+          </div>
+        </div>
+
+        <div
+          onClick={() => onNavigate('/discover')}
+          className="p-4 rounded-lg bg-zinc-900/60 border border-zinc-800/80 hover:border-zinc-700 transition cursor-pointer"
+        >
+          <div className="flex items-center justify-between text-zinc-400 text-xs mb-2">
+            <span>Discovered Videos</span>
             <Compass className="w-4 h-4 text-zinc-500" />
           </div>
           <div className="text-2xl font-bold font-mono text-zinc-100">
@@ -148,22 +166,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
           </div>
           <div className="text-[11px] text-zinc-500 mt-1">
             {readyClips.length} verified 9:16 MP4s
-          </div>
-        </div>
-
-        <div
-          onClick={() => onNavigate('/queue')}
-          className="p-4 rounded-lg bg-zinc-900/60 border border-zinc-800/80 hover:border-zinc-700 transition cursor-pointer"
-        >
-          <div className="flex items-center justify-between text-zinc-400 text-xs mb-2">
-            <span>Queue Items</span>
-            <ListOrdered className="w-4 h-4 text-zinc-500" />
-          </div>
-          <div className="text-2xl font-bold font-mono text-zinc-100">
-            {queueItems.length}
-          </div>
-          <div className="text-[11px] text-zinc-500 mt-1">
-            {queueItems.filter((q) => q.status === 'Ready').length} ready for distribution
           </div>
         </div>
       </div>
@@ -384,7 +386,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
           <div className="p-4 rounded-lg bg-zinc-900/30 border border-zinc-800/60 text-xs space-y-2">
             <span className="font-semibold text-zinc-300">Architecture Guarantee:</span>
             <p className="text-zinc-400 text-[11px] leading-relaxed">
-              ClipFlow strictly enforces zero-fake data. Rendered videos are encoded as genuine H.264/AAC MP4 files with FFmpeg and verified via FFprobe container validation.
+              ClipFlow uses decentralized Invidious metadata discovery and YouTube Atom RSS feeds for upload monitoring without Google Cloud billing. Rendered videos are encoded as genuine H.264/AAC MP4 files with FFmpeg and verified via FFprobe container validation.
             </p>
           </div>
         </div>

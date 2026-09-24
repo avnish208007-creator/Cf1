@@ -1,5 +1,12 @@
-import { YouTubeDataApiProvider } from '../../src/services/discovery/youtube-data.provider';
-import { getYouTubeApiKey } from '../../src/server/discovery-config';
+import { InvidiousDiscoveryProvider } from '../../src/services/discovery/invidious/invidious-discovery.provider';
+import { InvidiousInstanceManager } from '../../src/services/discovery/invidious/instance-manager';
+import { RSSDiscoveryProvider } from '../../src/services/discovery/rss/rss-discovery.provider';
+import { MonitoredChannel, SourceVideo } from '../../src/types';
+
+// Shared instance manager across invocations
+const instanceManager = new InvidiousInstanceManager();
+const invidiousProvider = new InvidiousDiscoveryProvider(instanceManager);
+const rssProvider = new RSSDiscoveryProvider();
 
 export async function handler(event: any) {
   if (event.httpMethod !== 'POST') {
@@ -12,7 +19,7 @@ export async function handler(event: any) {
 
   try {
     const payload = JSON.parse(event.body || '{}');
-    const { settings, existingExternalIds = [] } = payload;
+    const { settings, existingExternalIds = [], monitoredChannels = [] } = payload;
 
     if (!settings || !settings.niche || typeof settings.niche !== 'string' || settings.niche.trim().length === 0) {
       return {
@@ -25,24 +32,86 @@ export async function handler(event: any) {
       };
     }
 
-    // Server-only key acquisition: read strictly from server secrets (process.env.YOUTUBE_API_KEY)
-    // Never accept key from client settings or check unrelated variables.
-    const apiKey = getYouTubeApiKey();
+    const existingExternalSet = new Set<string>(existingExternalIds);
 
-    if (!apiKey) {
+    // 1. Discover relevant channels via Invidious public instance search
+    const discoveredCandidates = await invidiousProvider.discoverChannels(settings, 15);
+
+    // 2. Prepare MonitoredChannel objects from candidates and existing monitored channels
+    const channelMap = new Map<string, MonitoredChannel>();
+
+    for (const ch of monitoredChannels as MonitoredChannel[]) {
+      if (ch.channelId) channelMap.set(ch.channelId, ch);
+    }
+
+    let channelsAdded = 0;
+    const nowIso = new Date().toISOString();
+
+    for (const cand of discoveredCandidates) {
+      if (!channelMap.has(cand.channelId)) {
+        channelMap.set(cand.channelId, {
+          id: cand.channelId,
+          workspaceId: settings.id || 'default_workspace',
+          channelId: cand.channelId,
+          channelName: cand.channelName,
+          channelUrl: cand.channelUrl,
+          rssUrl: rssProvider.getFeedUrl(cand.channelId),
+          niche: settings.niche,
+          relevanceScore: cand.relevanceScore,
+          status: 'active',
+          discoveredAt: cand.discoveredAt || nowIso,
+          matchedQueries: cand.matchedQueries,
+          thumbnailUrl: cand.thumbnail,
+        });
+        channelsAdded++;
+      } else {
+        const existing = channelMap.get(cand.channelId)!;
+        if (cand.relevanceScore > existing.relevanceScore) {
+          existing.relevanceScore = cand.relevanceScore;
+        }
+      }
+    }
+
+    const allChannels = Array.from(channelMap.values());
+
+    if (allChannels.length === 0) {
       return {
-        statusCode: 400,
+        statusCode: 404,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          errorCode: 'DISCOVERY_PROVIDER_UNAVAILABLE',
-          errorMessage:
-            'YouTube Data API v3 is not configured in the server environment. Add YOUTUBE_API_KEY to the Google AI Studio Secrets.',
+          errorCode: 'DISCOVERY_NO_CHANNELS_FOUND',
+          errorMessage: `No YouTube channels could be discovered for niche "${settings.niche}". Please try refining your subtopics.`,
         }),
       };
     }
 
-    const provider = new YouTubeDataApiProvider(apiKey);
-    const result = await provider.discover(settings, new Set(existingExternalIds));
+    // 3. Monitor YouTube RSS feeds for new uploads
+    const monitorResult = await rssProvider.monitorChannels(allChannels, existingExternalSet, 10);
+
+    // Update channels with last check info
+    for (const update of monitorResult.channelUpdates) {
+      const ch = channelMap.get(update.channelId);
+      if (ch) {
+        ch.lastCheckedAt = nowIso;
+        ch.lastSuccessfulCheckAt = update.lastSuccessfulCheckAt;
+        if (update.latestVideoId) ch.latestVideoId = update.latestVideoId;
+        if (update.latestVideoTitle) ch.latestVideoTitle = update.latestVideoTitle;
+      }
+    }
+
+    const result = {
+      sources: monitorResult.newSources,
+      totalDiscovered: monitorResult.newSources.length + monitorResult.duplicatesSkipped,
+      totalAccepted: monitorResult.newSources.length,
+      totalRejected: 0,
+      channelsDiscovered: discoveredCandidates.length,
+      channelsAdded,
+      newVideos: monitorResult.newSources.length,
+      duplicatesSkipped: monitorResult.duplicatesSkipped,
+      providerName: 'Invidious + YouTube RSS',
+      queryAnglesUsed: invidiousProvider.generateQueries(settings),
+      channels: Array.from(channelMap.values()),
+    };
 
     return {
       statusCode: 200,
@@ -54,18 +123,30 @@ export async function handler(event: any) {
     let errorCode = 'DISCOVERY_REQUEST_FAILED';
     let statusCode = 500;
 
-    if (message.includes('DISCOVERY_QUOTA_EXCEEDED')) {
-      errorCode = 'DISCOVERY_QUOTA_EXCEEDED';
+    if (message.includes('DISCOVERY_INSTANCE_UNAVAILABLE')) {
+      errorCode = 'DISCOVERY_INSTANCE_UNAVAILABLE';
+      statusCode = 503;
+    } else if (message.includes('DISCOVERY_PROVIDER_UNAVAILABLE')) {
+      errorCode = 'DISCOVERY_PROVIDER_UNAVAILABLE';
+      statusCode = 503;
+    } else if (message.includes('DISCOVERY_RATE_LIMITED')) {
+      errorCode = 'DISCOVERY_RATE_LIMITED';
       statusCode = 429;
-    } else if (message.includes('DISCOVERY_API_KEY_INVALID')) {
-      errorCode = 'DISCOVERY_API_KEY_INVALID';
-      statusCode = 400;
+    } else if (message.includes('DISCOVERY_REQUEST_TIMEOUT')) {
+      errorCode = 'DISCOVERY_REQUEST_TIMEOUT';
+      statusCode = 504;
     } else if (message.includes('DISCOVERY_INVALID_NICHE')) {
       errorCode = 'DISCOVERY_INVALID_NICHE';
       statusCode = 400;
-    } else if (message.includes('DISCOVERY_PROVIDER_UNAVAILABLE')) {
-      errorCode = 'DISCOVERY_PROVIDER_UNAVAILABLE';
-      statusCode = 400;
+    } else if (message.includes('DISCOVERY_NO_CHANNELS_FOUND')) {
+      errorCode = 'DISCOVERY_NO_CHANNELS_FOUND';
+      statusCode = 404;
+    } else if (message.includes('RSS_REQUEST_FAILED')) {
+      errorCode = 'RSS_REQUEST_FAILED';
+      statusCode = 502;
+    } else if (message.includes('RSS_INVALID_RESPONSE')) {
+      errorCode = 'RSS_INVALID_RESPONSE';
+      statusCode = 502;
     }
 
     return {

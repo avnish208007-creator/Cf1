@@ -1,4 +1,4 @@
-import { testYouTubeConnection } from '../../src/server/discovery-config';
+import { testDiscoveryConnection } from '../../src/server/discovery-config';
 
 export async function handler(event: any) {
   if (event.httpMethod !== 'POST') {
@@ -9,7 +9,7 @@ export async function handler(event: any) {
     };
   }
 
-  const result = await testYouTubeConnection();
+  const result = await testDiscoveryConnection();
 
   return {
     statusCode: result.success ? 200 : 400,
