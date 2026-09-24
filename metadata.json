@@ -1,0 +1,6 @@
+{
+  "name": "ClipFlow",
+  "description": "Automated short-form content creation tool — discover high-potential moments from niche sources, analyze topics, and render 9:16 vertical video clips.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,149 @@
+{
+  "entities": {
+    "Workspace": {
+      "title": "Workspace",
+      "description": "Represents an automated content workspace belonging to an authenticated user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "settings": { "type": "object" }
+      },
+      "required": ["id", "name", "userId", "createdAt", "updatedAt", "settings"]
+    },
+    "SourceVideo": {
+      "title": "SourceVideo",
+      "description": "Represents a discovered external long-form video source record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "externalId": { "type": "string", "maxLength": 128 },
+        "platform": { "type": "string", "enum": ["youtube", "local_authorized"] },
+        "url": { "type": "string", "maxLength": 1024 },
+        "title": { "type": "string", "maxLength": 256 },
+        "channelTitle": { "type": "string", "maxLength": 128 },
+        "thumbnailUrl": { "type": "string", "maxLength": 1024 },
+        "publishedAt": { "type": "string", "format": "date-time" },
+        "duration": { "type": "number" },
+        "description": { "type": "string", "maxLength": 4096 },
+        "discoveredAt": { "type": "string", "format": "date-time" },
+        "relevanceScore": { "type": "number" },
+        "relevanceReason": { "type": "string", "maxLength": 1024 },
+        "status": { "type": "string", "enum": ["discovered", "analyzing", "analyzed", "failed"] }
+      },
+      "required": ["id", "workspaceId", "externalId", "platform", "url", "title", "channelTitle", "status"]
+    },
+    "ClipCandidate": {
+      "title": "ClipCandidate",
+      "description": "Represents an algorithmically scored moment candidate extracted from an analyzed source.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "sourceVideoId": { "type": "string", "maxLength": 128 },
+        "sourceTitle": { "type": "string", "maxLength": 256 },
+        "sourceChannel": { "type": "string", "maxLength": 128 },
+        "sourceThumbnail": { "type": "string", "maxLength": 1024 },
+        "sourceUrl": { "type": "string", "maxLength": 1024 },
+        "startTime": { "type": "number" },
+        "endTime": { "type": "number" },
+        "duration": { "type": "number" },
+        "transcript": { "type": "string", "maxLength": 4096 },
+        "hook": { "type": "string", "maxLength": 256 },
+        "context": { "type": "string", "maxLength": 1024 },
+        "payoff": { "type": "string", "maxLength": 1024 },
+        "reason": { "type": "string", "maxLength": 1024 },
+        "qualityTier": { "type": "string", "enum": ["Excellent", "Strong", "Potential", "Weak"] },
+        "status": { "type": "string", "enum": ["detected", "reviewed", "rendering", "rendered", "rejected", "failed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "sourceVideoId", "hook", "startTime", "endTime", "duration", "status"]
+    },
+    "Clip": {
+      "title": "Clip",
+      "description": "Represents a rendered 1080x1920 vertical video clip with validated MP4 output.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "candidateId": { "type": "string", "maxLength": 128 },
+        "sourceVideoId": { "type": "string", "maxLength": 128 },
+        "sourceTitle": { "type": "string", "maxLength": 256 },
+        "sourceChannel": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "videoUrl": { "type": "string", "maxLength": 1024 },
+        "posterUrl": { "type": "string", "maxLength": 1024 },
+        "duration": { "type": "number" },
+        "resolution": { "type": "object" },
+        "aspectRatio": { "type": "string", "enum": ["9:16"] },
+        "fileSizeBytes": { "type": "number" },
+        "caption": { "type": "string", "maxLength": 2048 },
+        "hashtags": { "type": "array" },
+        "status": { "type": "string", "enum": ["rendering", "ready", "queued", "failed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "candidateId", "sourceVideoId", "title", "videoUrl", "status"]
+    },
+    "Job": {
+      "title": "Job",
+      "description": "Tracks pipeline progress and background operations.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["discovery", "analysis", "moment_detection", "render"] },
+        "status": { "type": "string", "enum": ["queued", "discovering", "analyzing", "detecting_moments", "acquiring_media", "rendering", "generating_metadata", "completed", "failed"] },
+        "currentStep": { "type": "string", "maxLength": 512 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "type", "status", "currentStep", "createdAt", "updatedAt"]
+    },
+    "QueueItem": {
+      "title": "QueueItem",
+      "description": "An internal content staging item in the review queue.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "clipId": { "type": "string", "maxLength": 128 },
+        "clip": { "type": "object" },
+        "status": { "type": "string", "enum": ["Needs Review", "Ready", "Queued"] },
+        "priority": { "type": "number" },
+        "addedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "clipId", "status", "addedAt"]
+    }
+  },
+  "firestore": {
+    "/workspaces/{workspaceId}": {
+      "schema": { "$ref": "#/entities/Workspace" },
+      "description": "User content workspaces containing niche configuration and preferences."
+    },
+    "/workspaces/{workspaceId}/sources/{sourceId}": {
+      "schema": { "$ref": "#/entities/SourceVideo" },
+      "description": "Long-form sources discovered for this workspace."
+    },
+    "/workspaces/{workspaceId}/candidates/{candidateId}": {
+      "schema": { "$ref": "#/entities/ClipCandidate" },
+      "description": "Scored moments detected from analyzed sources."
+    },
+    "/workspaces/{workspaceId}/clips/{clipId}": {
+      "schema": { "$ref": "#/entities/Clip" },
+      "description": "Rendered 9:16 vertical video clips."
+    },
+    "/workspaces/{workspaceId}/jobs/{jobId}": {
+      "schema": { "$ref": "#/entities/Job" },
+      "description": "Pipeline execution job logs and progress."
+    },
+    "/workspaces/{workspaceId}/queue/{queueItemId}": {
+      "schema": { "$ref": "#/entities/QueueItem" },
+      "description": "Internal staging items in the review queue."
+    }
+  }
+}
