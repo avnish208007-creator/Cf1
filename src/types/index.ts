@@ -95,6 +95,8 @@ export interface SourceVideo {
   id: string;
   workspaceId?: string;
   externalId: string;
+  channelId?: string;
+  authorId?: string;
   platform: 'youtube' | 'local_authorized';
   provider?: string;
   url: string;
@@ -348,6 +350,7 @@ export type AppErrorCode =
   | 'DISCOVERY_INVALID_NICHE'
   | 'DISCOVERY_NO_CHANNELS_FOUND'
   | 'DISCOVERY_NO_NEW_VIDEOS'
+  | 'VIDEO_CHANNEL_MISMATCH'
   | 'RSS_REQUEST_FAILED'
   | 'RSS_INVALID_RESPONSE'
   | 'DISCOVERY_API_KEY_INVALID'

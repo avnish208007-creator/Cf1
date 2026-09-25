@@ -77,7 +77,7 @@ export class InvidiousDiscoveryProvider implements IDiscoveryProvider {
     const queries = this.generateQueries(settings);
     const rawChannels: RawDiscoveredChannel[] = [];
 
-    for (const query of queries) {
+    const queryPromises = queries.map(async (query) => {
       try {
         // Search for channels directly (pure channel discovery)
         const channelRes = await this.instanceManager.fetchJson<any[]>('/api/v1/search', {
@@ -89,6 +89,7 @@ export class InvidiousDiscoveryProvider implements IDiscoveryProvider {
         });
 
         if (Array.isArray(channelRes.data)) {
+          const results: RawDiscoveredChannel[] = [];
           for (const item of channelRes.data) {
             if (item.type === 'channel' && item.authorId) {
               const bestThumb =
@@ -96,7 +97,7 @@ export class InvidiousDiscoveryProvider implements IDiscoveryProvider {
                   ? item.authorThumbnails[item.authorThumbnails.length - 1].url
                   : undefined;
 
-              rawChannels.push({
+              results.push({
                 channelId: item.authorId,
                 channelName: item.author || 'Unknown Channel',
                 channelUrl: item.authorUrl
@@ -112,9 +113,18 @@ export class InvidiousDiscoveryProvider implements IDiscoveryProvider {
               });
             }
           }
+          return results;
         }
-      } catch (err: any) {
+      } catch {
         // Continue to other queries if one fails or is rate-limited
+      }
+      return [];
+    });
+
+    const settled = await Promise.allSettled(queryPromises);
+    for (const res of settled) {
+      if (res.status === 'fulfilled' && Array.isArray(res.value)) {
+        rawChannels.push(...res.value);
       }
     }
 

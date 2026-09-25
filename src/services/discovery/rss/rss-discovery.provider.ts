@@ -208,11 +208,15 @@ export class RSSDiscoveryProvider implements IDiscoveryProvider {
     workspaceId: string,
     relevanceScore = 80,
     relevanceReason?: string,
+    channelId?: string,
   ): SourceVideo {
+    const canonicalChannelId = channelId || entry.channelId;
     return {
       id: `src_yt_${entry.videoId}`,
       workspaceId,
       externalId: entry.videoId,
+      channelId: canonicalChannelId,
+      authorId: entry.channelId || canonicalChannelId,
       platform: 'youtube',
       url: entry.url,
       title: entry.title,
@@ -248,70 +252,101 @@ export class RSSDiscoveryProvider implements IDiscoveryProvider {
     const rejections: Array<{ videoId: string; title: string; reason: string }> = [];
     const channelUpdates: ChannelFeedUpdate[] = [];
 
-    for (const ch of activeChannels) {
+    const feedPromises = activeChannels.map(async (ch) => {
       try {
         const entries = await this.fetchChannelFeed(ch.channelId);
-        const checkTime = new Date().toISOString();
+        return { ch, entries, error: null };
+      } catch (err: any) {
+        return { ch, entries: [], error: err };
+      }
+    });
 
-        if (entries.length > 0) {
-          const latest = entries[0];
-          channelUpdates.push({
-            channelId: ch.channelId,
-            latestVideoId: latest.videoId,
-            latestVideoTitle: latest.title,
-            lastSuccessfulCheckAt: checkTime,
-          });
+    const settledFeeds = await Promise.all(feedPromises);
 
-          for (const entry of entries) {
-            videosChecked++;
+    for (const { ch, entries, error } of settledFeeds) {
+      const checkTime = new Date().toISOString();
+      if (error) {
+        console.warn(`[RSSDiscoveryProvider] Failed checking channel ${ch.channelId}:`, error.message);
+        continue;
+      }
 
-            if (existingExternalIds.has(entry.videoId)) {
-              duplicatesSkipped++;
+      if (entries.length > 0) {
+        const latest = entries[0];
+        channelUpdates.push({
+          channelId: ch.channelId,
+          latestVideoId: latest.videoId,
+          latestVideoTitle: latest.title,
+          lastSuccessfulCheckAt: checkTime,
+        });
+
+        for (const entry of entries) {
+          videosChecked++;
+
+          // Critical invariant: Enforce video belongs strictly to THIS channel
+          // video.authorId === channel.channelId
+          const entryAuthorId = entry.channelId?.trim();
+          const targetChannelId = ch.channelId?.trim();
+          if (entryAuthorId && targetChannelId && entryAuthorId !== targetChannelId) {
+            videosRejected++;
+            rejections.push({
+              videoId: entry.videoId,
+              title: entry.title,
+              reason: `VIDEO_CHANNEL_MISMATCH: Video authorId "${entryAuthorId}" does not match monitored channelId "${targetChannelId}". Rejected to maintain channel relationship integrity.`,
+            });
+            continue;
+          }
+
+          if (existingExternalIds.has(entry.videoId)) {
+            duplicatesSkipped++;
+            continue;
+          }
+
+          // Score video relevance if workspace settings are provided
+          if (settings && settings.niche) {
+            const relevance = VideoRelevanceScorer.scoreVideo(entry, ch, settings);
+
+            if (!relevance.relevant) {
+              videosRejected++;
+              rejections.push({
+                videoId: entry.videoId,
+                title: entry.title,
+                reason:
+                  relevance.rejectionReason ||
+                  `Video title and description do not sufficiently match active niche "${settings.niche}".`,
+              });
               continue;
             }
 
-            // Score video relevance if workspace settings are provided
-            if (settings && settings.niche) {
-              const relevance = VideoRelevanceScorer.scoreVideo(entry, ch, settings);
-
-              if (!relevance.relevant) {
-                videosRejected++;
-                rejections.push({
-                  videoId: entry.videoId,
-                  title: entry.title,
-                  reason:
-                    relevance.rejectionReason ||
-                    `Video title and description do not sufficiently match active niche "${settings.niche}".`,
-                });
-                continue;
-              }
-
-              videosAccepted++;
-              const relevanceReason = `Score ${relevance.score}/100: ${relevance.reasons.join(' · ')}`;
-              const source = this.normalizeSourceVideo(
-                entry,
-                ch.workspaceId,
-                relevance.score,
-                relevanceReason,
-              );
-              newSources.push(source);
-              existingExternalIds.add(entry.videoId);
-            } else {
-              // Legacy/fallback path when settings are omitted
-              videosAccepted++;
-              const source = this.normalizeSourceVideo(entry, ch.workspaceId, ch.relevanceScore);
-              newSources.push(source);
-              existingExternalIds.add(entry.videoId);
-            }
+            videosAccepted++;
+            const relevanceReason = `Score ${relevance.score}/100: ${relevance.reasons.join(' · ')}`;
+            const source = this.normalizeSourceVideo(
+              entry,
+              ch.workspaceId,
+              relevance.score,
+              relevanceReason,
+              ch.channelId,
+            );
+            newSources.push(source);
+            existingExternalIds.add(entry.videoId);
+          } else {
+            // Legacy/fallback path when settings are omitted
+            videosAccepted++;
+            const source = this.normalizeSourceVideo(
+              entry,
+              ch.workspaceId,
+              ch.relevanceScore,
+              undefined,
+              ch.channelId,
+            );
+            newSources.push(source);
+            existingExternalIds.add(entry.videoId);
           }
-        } else {
-          channelUpdates.push({
-            channelId: ch.channelId,
-            lastSuccessfulCheckAt: checkTime,
-          });
         }
-      } catch (err: any) {
-        console.warn(`[RSSDiscoveryProvider] Failed checking channel ${ch.channelId}:`, err.message);
+      } else {
+        channelUpdates.push({
+          channelId: ch.channelId,
+          lastSuccessfulCheckAt: checkTime,
+        });
       }
     }
 

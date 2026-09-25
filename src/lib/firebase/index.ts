@@ -58,8 +58,43 @@ export const db: Firestore = initFirestoreInstance();
 
 // Initialize Firebase Auth
 export const auth: Auth = getAuth(app);
+export { sanitizeFirestoreData } from './sanitize';
 
-// Test connection on boot as mandated by Firebase skill
+let cachedUser: User | null = null;
+let isAuthInitStarted = false;
+
+export function initAuthInBackground(): void {
+  if (isAuthInitStarted) return;
+  isAuthInitStarted = true;
+
+  try {
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        cachedUser = user;
+      } else {
+        try {
+          const cred = await signInAnonymously(auth);
+          cachedUser = cred.user;
+        } catch {
+          // Graceful fallback to local operation
+        }
+      }
+    });
+  } catch {
+    // Non-blocking fallback
+  }
+}
+
+// Start background auth immediately
+initAuthInBackground();
+
+export function getCachedUserId(): string {
+  if (auth.currentUser?.uid) return auth.currentUser.uid;
+  if (cachedUser?.uid) return cachedUser.uid;
+  return 'local_user';
+}
+
+// Test connection on boot non-blockingly
 export async function validateFirestoreConnection(): Promise<boolean> {
   try {
     await getDocFromServer(doc(db, '_connection_test', 'ping'));
@@ -70,24 +105,30 @@ export async function validateFirestoreConnection(): Promise<boolean> {
   }
 }
 
-// Ensure an authenticated session (anonymous or user) for security rules
+// Non-blocking auth user retrieval
 export async function ensureAuthUser(): Promise<User | null> {
+  if (auth.currentUser) return auth.currentUser;
+  if (cachedUser) return cachedUser;
+
   return new Promise((resolve) => {
     try {
       const unsubscribe = onAuthStateChanged(auth, async (user) => {
         unsubscribe();
         if (user) {
+          cachedUser = user;
           resolve(user);
         } else {
           try {
             const cred = await signInAnonymously(auth);
+            cachedUser = cred.user;
             resolve(cred.user);
-          } catch (err: any) {
-            // If anonymous sign-in is disabled or restricted, proceed with local fallback
+          } catch {
             resolve(null);
           }
         }
       });
+      // Safety timeout after 500ms so nothing blocks
+      setTimeout(() => resolve(auth.currentUser || cachedUser), 500);
     } catch {
       resolve(null);
     }

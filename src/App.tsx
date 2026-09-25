@@ -34,13 +34,21 @@ function AppContent() {
     window.scrollTo(0, 0);
   };
 
-  if (isLoading) {
+  // If loading and no cached workspace exists yet, show layout shell with skeleton instead of blank screen
+  if (isLoading && !workspace) {
     return (
-      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center">
-        <div className="text-xs font-mono text-zinc-500 animate-pulse">
-          Loading ClipFlow Engine...
+      <AppLayout currentPath={currentPath} onNavigate={navigate}>
+        <div className="space-y-6 animate-pulse">
+          <div className="h-8 w-48 bg-zinc-900 rounded" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="h-24 bg-zinc-900/60 rounded-lg border border-zinc-800/40" />
+            <div className="h-24 bg-zinc-900/60 rounded-lg border border-zinc-800/40" />
+            <div className="h-24 bg-zinc-900/60 rounded-lg border border-zinc-800/40" />
+            <div className="h-24 bg-zinc-900/60 rounded-lg border border-zinc-800/40" />
+          </div>
+          <div className="h-64 bg-zinc-900/40 rounded-lg border border-zinc-800/40" />
         </div>
-      </div>
+      </AppLayout>
     );
   }
 

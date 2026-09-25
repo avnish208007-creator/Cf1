@@ -14,8 +14,29 @@ interface WorkspaceContextType {
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // Synchronous immediate initialization from local storage for 0ms initial render
+  const [workspace, setWorkspace] = useState<Workspace | null>(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('clipflow:v1:workspace');
+        return raw ? JSON.parse(raw) : null;
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  });
+
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        return !localStorage.getItem('clipflow:v1:workspace');
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  });
 
   const refreshWorkspace = useCallback(async () => {
     try {
@@ -42,6 +63,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
     await repository.saveWorkspace(newWs);
     setWorkspace(newWs);
+    setIsLoading(false);
     return newWs;
   };
 

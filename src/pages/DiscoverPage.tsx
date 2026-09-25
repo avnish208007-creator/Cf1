@@ -52,6 +52,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastDiscoveryResult, setLastDiscoveryResult] = useState<DiscoveryResult | null>(null);
   const [rssCheckMessage, setRssCheckMessage] = useState<string | null>(null);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
 
   const handleResetDiscovery = async () => {
     if (!window.confirm('Reset all discovered channels, source videos, and candidate moments for this workspace? Your niche and settings will be preserved.')) {
@@ -59,10 +60,12 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
     }
     setIsResetting(true);
     setErrorMessage(null);
+    setResetSuccessMessage(null);
     setLastDiscoveryResult(null);
     setRssCheckMessage(null);
     try {
       await resetDiscoveryData();
+      setResetSuccessMessage('Reset complete. Monitored channels, discovered videos, candidates, and job history cleared.');
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to reset discovery data.');
     } finally {
@@ -312,6 +315,13 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({ onNavigate }) => {
         <div className="p-3.5 rounded-md bg-amber-950/40 border border-amber-900/60 text-xs text-amber-200 flex items-center gap-2.5">
           <Rss className="w-4 h-4 text-amber-400 shrink-0" />
           <span>{rssCheckMessage}</span>
+        </div>
+      )}
+
+      {resetSuccessMessage && (
+        <div className="p-3.5 rounded-md bg-emerald-950/40 border border-emerald-900/60 text-xs text-emerald-200 flex items-center gap-2.5">
+          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{resetSuccessMessage}</span>
         </div>
       )}
 

@@ -12,6 +12,7 @@ import { handler as mediaTestPipelineHandler } from './netlify/functions/media-t
 import { handler as discoveryStatusHandler } from './netlify/functions/discovery-status';
 import { handler as discoveryStatusTestHandler } from './netlify/functions/discovery-status-test';
 import { handler as discoveryScheduledRssHandler } from './netlify/functions/discovery-scheduled-rss';
+import { handler as resetDiscoveryHandler } from './netlify/functions/reset-discovery';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -101,6 +102,10 @@ async function createServer() {
   app.all(
     ['/api/discovery/scheduled-rss', '/.netlify/functions/discovery-scheduled-rss'],
     adaptNetlify(discoveryScheduledRssHandler),
+  );
+  app.post(
+    ['/api/discovery/reset', '/.netlify/functions/reset-discovery'],
+    adaptNetlify(resetDiscoveryHandler),
   );
 
   if (!isProd) {

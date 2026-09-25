@@ -20,11 +20,14 @@ export class InvidiousInstanceManager {
     'https://yt.chocolatemoo53.com',
     'https://invidious.tiekoetter.com',
     'https://inv.nadeko.net',
+    'https://invidious.private.coffee',
+    'https://invidious.projectsegfau.lt',
+    'https://invidious.protokolla.fi',
   ];
 
   private instances: InvidiousInstance[] = [];
   private lastSelectedIdx = 0;
-  private defaultTimeoutMs = 10000; // 10s per-request timeout
+  private defaultTimeoutMs = 5000; // 5s per-request timeout for rapid failover
 
   constructor(customInstances?: string[]) {
     this.initInstances(customInstances);

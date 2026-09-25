@@ -75,6 +75,14 @@ export class ApiClient {
     });
   }
 
+  // --- Reset Discovery ---
+  async resetDiscovery(workspaceId?: string): Promise<{ success: boolean; message: string }> {
+    return await this.request('/api/discovery/reset', {
+      method: 'POST',
+      body: JSON.stringify({ workspaceId }),
+    });
+  }
+
   // --- Scheduled RSS Check ---
   async runScheduledRss(
     channels: MonitoredChannel[],

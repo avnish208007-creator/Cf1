@@ -56,14 +56,62 @@ const JobContext = createContext<JobContextType | undefined>(undefined);
 
 export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { workspace } = useWorkspace();
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobs, setJobs] = useState<Job[]>(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('clipflow:v1:jobs');
+        return raw ? JSON.parse(raw) : [];
+      }
+    } catch {}
+    return [];
+  });
   const [activeJob, setActiveJob] = useState<Job | null>(null);
-  const [sources, setSources] = useState<SourceVideo[]>([]);
-  const [channels, setChannels] = useState<MonitoredChannel[]>([]);
-  const [candidates, setCandidates] = useState<ClipCandidate[]>([]);
-  const [clips, setClips] = useState<Clip[]>([]);
-  const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
-  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [sources, setSources] = useState<SourceVideo[]>(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('clipflow:v1:sources');
+        return raw ? JSON.parse(raw) : [];
+      }
+    } catch {}
+    return [];
+  });
+  const [channels, setChannels] = useState<MonitoredChannel[]>(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('clipflow:v1:channels');
+        return raw ? JSON.parse(raw) : [];
+      }
+    } catch {}
+    return [];
+  });
+  const [candidates, setCandidates] = useState<ClipCandidate[]>(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('clipflow:v1:candidates');
+        return raw ? JSON.parse(raw) : [];
+      }
+    } catch {}
+    return [];
+  });
+  const [clips, setClips] = useState<Clip[]>(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('clipflow:v1:clips');
+        return raw ? JSON.parse(raw) : [];
+      }
+    } catch {}
+    return [];
+  });
+  const [queueItems, setQueueItems] = useState<QueueItem[]>(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('clipflow:v1:queue');
+        return raw ? JSON.parse(raw) : [];
+      }
+    } catch {}
+    return [];
+  });
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const analyzingSourcesRef = useRef<Set<string>>(new Set());
 
   const refreshData = useCallback(async () => {
@@ -124,7 +172,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       type,
       status: 'queued',
       currentStep: initialStep,
-      targetTitle,
+      ...(targetTitle ? { targetTitle } : {}),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       logs: [initialStep],
@@ -146,18 +194,22 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const job = await repository.getJobById(jobId);
     if (!job) return;
 
-    const logs = job.logs || [];
-    logs.push(step);
+    const logs = [...(job.logs || []), step];
 
-    const updated = await repository.updateJob(jobId, {
+    const updates: Partial<Job> = {
       status,
       currentStep: step,
-      progress,
-      errorCode,
-      errorMessage,
       logs,
-      completedAt: status === 'completed' || status === 'failed' ? new Date().toISOString() : undefined,
-    });
+      updatedAt: new Date().toISOString(),
+      ...(progress !== undefined ? { progress } : {}),
+      ...(errorCode ? { errorCode } : {}),
+      ...(errorMessage ? { errorMessage } : {}),
+      ...(status === 'completed' || status === 'failed'
+        ? { completedAt: new Date().toISOString() }
+        : {}),
+    };
+
+    const updated = await repository.updateJob(jobId, updates);
 
     setJobs((prev) => prev.map((j) => (j.id === jobId ? updated : j)));
     if (status === 'completed' || status === 'failed') {
@@ -621,8 +673,18 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const resetDiscoveryData = async () => {
+    try {
+      if (workspace?.id) {
+        await apiClient.resetDiscovery(workspace.id);
+      }
+    } catch (err) {
+      console.warn('[JobContext] Server reset request notice:', err);
+    }
     await repository.resetDiscoveryData();
     setActiveJob(null);
+    setSources([]);
+    setChannels([]);
+    setCandidates([]);
     await refreshData();
   };
 

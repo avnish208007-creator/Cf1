@@ -349,6 +349,45 @@ describe('Invidious + YouTube RSS Discovery Pipeline', () => {
       expect(result.rejections.length).toBe(1);
       expect(result.rejections[0].videoId).toBe('vid_vlog_2');
     });
+
+    it('rejects videos with VIDEO_CHANNEL_MISMATCH if authorId/channelId does not match the monitored channel', async () => {
+      const provider = new RSSDiscoveryProvider();
+      vi.spyOn(provider, 'fetchChannelFeed').mockResolvedValue([
+        {
+          videoId: 'vid_mismatch_1',
+          channelId: 'UC_OTHER_CHANNEL',
+          title: 'AI Artificial Intelligence Tutorial',
+          channelTitle: 'Unrelated Channel',
+          publishedAt: '2026-03-24T12:00:00Z',
+          url: 'https://youtube.com/watch?v=vid_mismatch_1',
+          description: 'Artificial Intelligence and machine learning basics.',
+        },
+      ]);
+
+      const channels: MonitoredChannel[] = [
+        {
+          id: 'UC_TARGET_CHANNEL',
+          workspaceId: 'ws_test',
+          channelId: 'UC_TARGET_CHANNEL',
+          channelName: 'Target Channel',
+          channelUrl: 'https://youtube.com/channel/UC_TARGET_CHANNEL',
+          rssUrl: 'https://youtube.com/feeds/videos.xml?channel_id=UC_TARGET_CHANNEL',
+          niche: 'AI technology',
+          relevanceScore: 85,
+          status: 'active',
+          discoveredAt: '2026-03-20T00:00:00Z',
+        },
+      ];
+
+      const result = await provider.monitorChannels(channels, new Set(), 10, mockSettings);
+
+      expect(result.videosChecked).toBe(1);
+      expect(result.videosAccepted).toBe(0);
+      expect(result.videosRejected).toBe(1);
+      expect(result.newSources.length).toBe(0);
+      expect(result.rejections[0].videoId).toBe('vid_mismatch_1');
+      expect(result.rejections[0].reason).toContain('VIDEO_CHANNEL_MISMATCH');
+    });
   });
 
   describe('DiscoveryService (Orchestrator)', () => {
