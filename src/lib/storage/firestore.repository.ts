@@ -7,7 +7,7 @@ import {
   getDocs,
 } from 'firebase/firestore';
 import { db, getCachedUserId, sanitizeFirestoreData } from '../firebase';
-import { IRepository } from './repository.interface';
+import { IRepository, DiagnosticCounts } from './repository.interface';
 import { LocalStorageRepository } from './local-storage.repository';
 import {
   Workspace,
@@ -540,39 +540,78 @@ export class FirestoreRepository implements IRepository {
   }
 
   // --- Utility ---
+  async getDiagnosticCounts(): Promise<DiagnosticCounts> {
+    const ws = await this.getWorkspace();
+    const wsId = ws?.id || this.cachedWorkspaceId || 'unknown_workspace';
+
+    let fsChannels = 0;
+    let fsSources = 0;
+    let fsCandidates = 0;
+    let fsJobs = 0;
+
+    try {
+      const chSnap = await fetchWithTimeout(getDocs(collection(db, 'workspaces', wsId, 'channels')), 2000);
+      fsChannels = chSnap.size;
+    } catch {
+      // Offline or fallback
+    }
+
+    try {
+      const srcSnap = await fetchWithTimeout(getDocs(collection(db, 'workspaces', wsId, 'sources')), 2000);
+      fsSources = srcSnap.size;
+    } catch {
+      // Offline or fallback
+    }
+
+    try {
+      const candSnap = await fetchWithTimeout(getDocs(collection(db, 'workspaces', wsId, 'candidates')), 2000);
+      fsCandidates = candSnap.size;
+    } catch {
+      // Offline or fallback
+    }
+
+    try {
+      const jobSnap = await fetchWithTimeout(getDocs(collection(db, 'workspaces', wsId, 'jobs')), 2000);
+      fsJobs = jobSnap.docs.filter((d) => (d.data() as Job).type === 'discovery').length;
+    } catch {
+      // Offline or fallback
+    }
+
+    const localCounts = await this.localFallback.getDiagnosticCounts();
+
+    return {
+      workspaceId: wsId,
+      firestore: {
+        channels: fsChannels,
+        sources: fsSources,
+        candidates: fsCandidates,
+        jobs: fsJobs,
+      },
+      localStorage: localCounts.localStorage,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   async resetDiscoveryData(): Promise<void> {
     const ws = await this.getWorkspace();
-    if (ws) {
-      try {
-        const chSnap = await getDocs(collection(db, 'workspaces', ws.id, 'channels'));
-        await Promise.all(chSnap.docs.map((d) => deleteDoc(d.ref)));
-      } catch {
-        // Warning ignored
-      }
+    const wsId = ws?.id || this.cachedWorkspaceId || 'default_workspace';
+    const targetWorkspaces = Array.from(new Set([wsId, 'default_workspace']));
 
-      try {
-        const srcSnap = await getDocs(collection(db, 'workspaces', ws.id, 'sources'));
-        await Promise.all(srcSnap.docs.map((d) => deleteDoc(d.ref)));
-      } catch {
-        // Warning ignored
-      }
-
-      try {
-        const candSnap = await getDocs(collection(db, 'workspaces', ws.id, 'candidates'));
-        await Promise.all(candSnap.docs.map((d) => deleteDoc(d.ref)));
-      } catch {
-        // Warning ignored
-      }
-
-      try {
-        const jobSnap = await getDocs(collection(db, 'workspaces', ws.id, 'jobs'));
-        await Promise.all(
-          jobSnap.docs
-            .filter((d) => (d.data() as Job).type === 'discovery')
-            .map((d) => deleteDoc(d.ref)),
-        );
-      } catch {
-        // Warning ignored
+    for (const id of targetWorkspaces) {
+      const colNames = ['channels', 'sources', 'candidates', 'jobs'];
+      for (const colName of colNames) {
+        try {
+          const snap = await fetchWithTimeout(getDocs(collection(db, 'workspaces', id, colName)), 2000);
+          const docsToDelete = snap.docs.filter((d) => {
+            if (colName === 'jobs') {
+              return (d.data() as Job).type === 'discovery';
+            }
+            return true;
+          });
+          await Promise.all(docsToDelete.map((d) => deleteDoc(d.ref)));
+        } catch (err) {
+          console.warn(`[FirestoreRepository] Reset error deleting ${colName} for workspace ${id}:`, err);
+        }
       }
     }
 

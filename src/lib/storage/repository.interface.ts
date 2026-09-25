@@ -9,6 +9,23 @@ import {
   MonitoredChannel,
 } from '../../types';
 
+export interface DiagnosticCounts {
+  workspaceId: string;
+  firestore: {
+    channels: number;
+    sources: number;
+    candidates: number;
+    jobs: number;
+  };
+  localStorage: {
+    channels: number;
+    sources: number;
+    candidates: number;
+    jobs: number;
+  };
+  timestamp: string;
+}
+
 export interface IRepository {
   // Workspace & Settings
   getWorkspace(): Promise<Workspace | null>;
@@ -63,6 +80,7 @@ export interface IRepository {
   deleteQueueItem(id: string): Promise<void>;
 
   // Utility
+  getDiagnosticCounts(): Promise<DiagnosticCounts>;
   resetDiscoveryData(): Promise<void>;
   resetAll(): Promise<void>;
 }

@@ -35,7 +35,7 @@ export class DiscoveryService {
     this.limits = { ...DEFAULT_DISCOVERY_LIMITS, ...limits };
     this.invidiousProvider =
       invidiousProvider || new InvidiousDiscoveryProvider(new InvidiousInstanceManager());
-    this.rssProvider = rssProvider || new RSSDiscoveryProvider();
+    this.rssProvider = rssProvider || new RSSDiscoveryProvider(this.invidiousProvider.instanceManager);
   }
 
   /**

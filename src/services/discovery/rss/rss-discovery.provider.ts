@@ -1,6 +1,7 @@
 import { SourceVideo, MonitoredChannel, WorkspaceSettings } from '../../../types';
 import { IDiscoveryProvider, DiscoveryResult } from '../discovery.interface';
 import { VideoRelevanceScorer } from '../video-relevance-scorer';
+import { InvidiousInstanceManager } from '../invidious/instance-manager';
 
 export interface RssEntry {
   videoId: string;
@@ -36,6 +37,8 @@ export class RSSDiscoveryProvider implements IDiscoveryProvider {
   readonly name = 'YouTube Public Atom RSS Provider';
 
   private defaultTimeoutMs = 7000;
+
+  constructor(private instanceManager?: InvidiousInstanceManager) {}
 
   get isConnected(): boolean {
     return true; // Public YouTube RSS feeds require no auth or keys
@@ -156,6 +159,48 @@ export class RSSDiscoveryProvider implements IDiscoveryProvider {
       .replace(/&apos;/g, "'");
   }
 
+  private async fetchFromInvidiousFallback(channelId: string): Promise<RssEntry[]> {
+    if (!this.instanceManager) return [];
+    try {
+      const res = await this.instanceManager.fetchJson<any>(`/api/v1/channels/${channelId}/videos`, {
+        timeoutMs: 5000,
+        maxRetries: 1,
+      });
+      const rawVideos = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.videos)
+        ? res.data.videos
+        : [];
+      const entries: RssEntry[] = [];
+      for (const v of rawVideos) {
+        if (!v.videoId) continue;
+        const vAuthorId = v.authorId || channelId;
+        const bestThumb =
+          v.videoThumbnails && v.videoThumbnails.length > 0
+            ? v.videoThumbnails[v.videoThumbnails.length - 1].url
+            : `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`;
+        const publishedAt =
+          typeof v.published === 'number'
+            ? new Date(v.published * 1000).toISOString()
+            : v.publishedText || new Date().toISOString();
+
+        entries.push({
+          videoId: v.videoId,
+          channelId: vAuthorId,
+          title: v.title || 'Untitled Upload',
+          channelTitle: v.author || 'YouTube Creator',
+          publishedAt,
+          url: `https://www.youtube.com/watch?v=${v.videoId}`,
+          thumbnailUrl: bestThumb,
+          description: v.description || '',
+        });
+      }
+      return entries;
+    } catch {
+      return [];
+    }
+  }
+
   /**
    * Fetches the public YouTube RSS feed for a monitored channel with timeout and error handling.
    */
@@ -164,6 +209,7 @@ export class RSSDiscoveryProvider implements IDiscoveryProvider {
     timeoutMs = this.defaultTimeoutMs,
   ): Promise<RssEntry[]> {
     const feedUrl = this.getFeedUrl(channelId);
+    console.log(`[RSSDiscoveryProvider] Requesting RSS feed for channelId: ${channelId} (${feedUrl})`);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -179,6 +225,12 @@ export class RSSDiscoveryProvider implements IDiscoveryProvider {
       clearTimeout(timer);
 
       if (!res.ok) {
+        const fallback = await this.fetchFromInvidiousFallback(channelId);
+        if (fallback.length > 0) return fallback;
+        if (res.status === 404 || res.status === 500) {
+          console.warn(`[RSSDiscoveryProvider] Channel feed ${channelId} returned HTTP ${res.status}. Channel unavailable.`);
+          return [];
+        }
         throw new Error(
           `RSS_REQUEST_FAILED: Feed for channel ${channelId} returned HTTP ${res.status}: ${res.statusText}`,
         );
@@ -188,15 +240,15 @@ export class RSSDiscoveryProvider implements IDiscoveryProvider {
       return this.parseFeedXml(xml, channelId);
     } catch (err: any) {
       clearTimeout(timer);
+      const fallback = await this.fetchFromInvidiousFallback(channelId);
+      if (fallback.length > 0) return fallback;
       if (err.message?.startsWith('RSS_')) {
         throw err;
       }
       if (err.name === 'AbortError') {
-        throw new Error(
-          `RSS_REQUEST_FAILED: Fetching RSS feed for channel ${channelId} timed out after ${timeoutMs}ms.`,
-        );
+        return [];
       }
-      throw new Error(`RSS_REQUEST_FAILED: Network error fetching feed: ${err.message}`);
+      return [];
     }
   }
 
@@ -287,6 +339,7 @@ export class RSSDiscoveryProvider implements IDiscoveryProvider {
           const entryAuthorId = entry.channelId?.trim();
           const targetChannelId = ch.channelId?.trim();
           if (entryAuthorId && targetChannelId && entryAuthorId !== targetChannelId) {
+            console.warn(`VIDEO_CHANNEL_MISMATCH: videoId=${entry.videoId}, videoAuthorId=${entryAuthorId}, expectedChannelId=${targetChannelId}`);
             videosRejected++;
             rejections.push({
               videoId: entry.videoId,

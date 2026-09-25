@@ -32,7 +32,7 @@ export class InvidiousDiscoveryProvider implements IDiscoveryProvider {
   readonly id = 'invidious_public';
   readonly name = 'Invidious Open Discovery Provider';
 
-  constructor(private instanceManager: InvidiousInstanceManager) {}
+  constructor(public instanceManager: InvidiousInstanceManager) {}
 
   get isConnected(): boolean {
     return this.instanceManager.getHealthyInstances().length > 0;

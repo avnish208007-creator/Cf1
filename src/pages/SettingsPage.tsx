@@ -17,6 +17,7 @@ import {
   RefreshCw,
   RotateCcw,
   ShieldCheck,
+  Database,
 } from 'lucide-react';
 
 interface SettingsPageProps {
@@ -59,6 +60,36 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
     errorCode?: string;
     message: string;
   } | null>(null);
+
+  // Diagnostic tool state: raw document counts
+  const [diagnosticCounts, setDiagnosticCounts] = useState<{
+    workspaceId: string;
+    firestore: { channels: number; sources: number; candidates: number; jobs: number };
+    localStorage: { channels: number; sources: number; candidates: number; jobs: number };
+    timestamp: string;
+  } | null>(null);
+  const [isLoadingDiagnostics, setIsLoadingDiagnostics] = useState(false);
+
+  // Live reset progress tracking state
+  const [resetProgress, setResetProgress] = useState<{
+    currentCollection: string;
+    status: string;
+    message: string;
+  } | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
+
+  const fetchDiagnosticCounts = async () => {
+    setIsLoadingDiagnostics(true);
+    try {
+      const { repository } = await import('../lib/storage');
+      const counts = await repository.getDiagnosticCounts();
+      setDiagnosticCounts(counts);
+    } catch (err) {
+      console.warn('[SettingsPage] Failed to fetch diagnostic counts:', err);
+    } finally {
+      setIsLoadingDiagnostics(false);
+    }
+  };
 
   const fetchDiscoveryStatus = async () => {
     setIsLoadingStatus(true);
@@ -104,6 +135,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     fetchDiscoveryStatus();
+    fetchDiagnosticCounts();
   }, []);
 
   useEffect(() => {
@@ -172,9 +204,31 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
         'This will remove all discovered channels, source videos, candidate moments, and discovery jobs for this workspace. Your niche and branding settings will be kept intact. Proceed?',
       )
     ) {
-      const { repository } = await import('../lib/storage');
-      await repository.resetDiscoveryData();
-      alert('Discovery data reset successfully.');
+      setIsResetting(true);
+      setResetProgress({
+        currentCollection: 'initiating',
+        status: 'clearing',
+        message: 'Starting discovery reset & verification...',
+      });
+
+      try {
+        const { resetDiscoveryWithVerification } = await import('../lib/discovery');
+        await resetDiscoveryWithVerification(workspace?.id, (progress) => {
+          setResetProgress({
+            currentCollection: progress.currentCollection,
+            status: progress.status,
+            message: progress.message,
+          });
+        });
+
+        await fetchDiagnosticCounts();
+        alert('Discovery data reset & verified successfully (0 documents remaining).');
+      } catch (err: any) {
+        alert(`Reset failed: ${err.message}`);
+      } finally {
+        setIsResetting(false);
+        setResetProgress(null);
+      }
     }
   };
 
@@ -499,6 +553,150 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
           </div>
         </div>
 
+        {/* Diagnostic Tool: Raw Document Counts */}
+        <div className="p-6 rounded-lg bg-zinc-900/40 border border-zinc-800/80 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/60 pb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <Database className="w-4 h-4 text-sky-400" />
+                <h3 className="text-sm font-semibold text-zinc-200">
+                  Storage Diagnostic Tool
+                </h3>
+              </div>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Displays raw Firestore document counts and local cache status for the active workspace.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={fetchDiagnosticCounts}
+              disabled={isLoadingDiagnostics}
+              className="px-3 py-1.5 text-xs font-semibold rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition cursor-pointer flex items-center gap-2 shrink-0 disabled:opacity-50"
+            >
+              {isLoadingDiagnostics ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Scanning Storage...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Scan Raw Storage</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {diagnosticCounts ? (
+            <div className="space-y-4">
+              {/* Reset Status Verification Banner */}
+              {diagnosticCounts.firestore.channels === 0 &&
+              diagnosticCounts.firestore.sources === 0 &&
+              diagnosticCounts.firestore.candidates === 0 ? (
+                <div className="p-3 rounded bg-emerald-950/40 border border-emerald-800/60 flex items-center gap-2 text-emerald-300 text-xs font-medium">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    RESET VERIFIED: Active workspace has 0 channels, 0 sources, and 0 candidates in Firestore.
+                  </span>
+                </div>
+              ) : (
+                <div className="p-3 rounded bg-amber-950/40 border border-amber-800/60 flex items-center gap-2 text-amber-300 text-xs font-medium">
+                  <Info className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>
+                    ACTIVE DATA PRESENT: Raw Firestore collections currently hold active discovery records.
+                  </span>
+                </div>
+              )}
+
+              {/* Raw Document Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Channels Count */}
+                <div className="p-3.5 rounded-md bg-zinc-950 border border-zinc-800 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
+                    <span>Channels</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
+                      channels
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-2xl font-bold text-zinc-100 font-mono">
+                      {diagnosticCounts.firestore.channels}
+                    </span>
+                    <span className="text-[11px] text-zinc-500 font-mono">
+                      Raw Firestore Docs
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-zinc-400 pt-1 border-t border-zinc-800/60 flex justify-between">
+                    <span>Local Cache:</span>
+                    <span className="font-mono font-semibold text-zinc-300">
+                      {diagnosticCounts.localStorage.channels}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Sources Count */}
+                <div className="p-3.5 rounded-md bg-zinc-950 border border-zinc-800 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
+                    <span>Sources</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
+                      sources
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-2xl font-bold text-zinc-100 font-mono">
+                      {diagnosticCounts.firestore.sources}
+                    </span>
+                    <span className="text-[11px] text-zinc-500 font-mono">
+                      Raw Firestore Docs
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-zinc-400 pt-1 border-t border-zinc-800/60 flex justify-between">
+                    <span>Local Cache:</span>
+                    <span className="font-mono font-semibold text-zinc-300">
+                      {diagnosticCounts.localStorage.sources}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Candidates Count */}
+                <div className="p-3.5 rounded-md bg-zinc-950 border border-zinc-800 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
+                    <span>Candidates</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
+                      candidates
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-2xl font-bold text-zinc-100 font-mono">
+                      {diagnosticCounts.firestore.candidates}
+                    </span>
+                    <span className="text-[11px] text-zinc-500 font-mono">
+                      Raw Firestore Docs
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-zinc-400 pt-1 border-t border-zinc-800/60 flex justify-between">
+                    <span>Local Cache:</span>
+                    <span className="font-mono font-semibold text-zinc-300">
+                      {diagnosticCounts.localStorage.candidates}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer diagnostic metadata */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-[11px] text-zinc-500 gap-1 font-mono pt-1">
+                <span>Workspace: {diagnosticCounts.workspaceId}</span>
+                <span>Last Scan: {new Date(diagnosticCounts.timestamp).toLocaleTimeString()}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 text-center text-xs text-zinc-500">
+              Click &quot;Scan Raw Storage&quot; to inspect document counts.
+            </div>
+          )}
+        </div>
+
         {/* Danger Zone: Storage Reset */}
         <div className="p-6 rounded-lg bg-rose-950/20 border border-rose-900/50 space-y-3">
           <div className="flex items-center gap-2 text-rose-300">
@@ -508,14 +706,39 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate }) => {
           <p className="text-xs text-rose-200/80 leading-relaxed">
             All workspace metadata, sources, candidate moments, clips, and internal queue items are persisted to Firebase Cloud Firestore and synchronized locally with instant offline cache.
           </p>
+          {resetProgress && (
+            <div className="p-3.5 rounded bg-zinc-950 border border-amber-800/60 text-amber-200 text-xs space-y-1.5 animate-pulse">
+              <div className="flex items-center gap-2 font-semibold">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                <span>Resetting Collection: {resetProgress.currentCollection.toUpperCase()}</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-amber-300">
+                  {resetProgress.status}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed font-mono">
+                {resetProgress.message}
+              </p>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <button
               type="button"
               onClick={handleResetDiscovery}
-              className="px-3.5 py-1.5 rounded bg-zinc-900 border border-zinc-700 hover:bg-zinc-800 text-zinc-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+              disabled={isResetting}
+              className="px-3.5 py-1.5 rounded bg-zinc-900 border border-zinc-700 hover:bg-zinc-800 text-zinc-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
             >
-              <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-              <span>Reset Discovery Data (Keep Workspace Settings)</span>
+              {isResetting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                  <span>Clearing & Verifying Firestore...</span>
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Reset Discovery Data (Keep Workspace Settings)</span>
+                </>
+              )}
             </button>
             <button
               type="button"

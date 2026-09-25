@@ -49,6 +49,7 @@ interface JobContextType {
   updateQueueItemStatus: (queueItemId: string, status: QueueItem['status']) => Promise<void>;
   deleteClip: (clipId: string) => Promise<void>;
   dismissJob: (jobId: string) => Promise<void>;
+  retryJob: (jobId: string) => Promise<void>;
   resetDiscoveryData: () => Promise<void>;
 }
 
@@ -672,16 +673,31 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setJobs((prev) => prev.filter((j) => j.id !== jobId));
   };
 
+  const retryJob = async (jobId: string) => {
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job) return;
+    await dismissJob(jobId);
+    if (job.type === 'discovery') {
+      await runDiscovery();
+    } else if (job.type === 'analysis' && job.targetTitle) {
+      const src = sources.find((s) => s.title === job.targetTitle || s.id === job.targetTitle);
+      if (src) await analyzeSource(src);
+    }
+  };
+
   const resetDiscoveryData = async () => {
     try {
       if (workspace?.id) {
         await apiClient.resetDiscovery(workspace.id);
+      } else {
+        await apiClient.resetDiscovery('default_workspace');
       }
     } catch (err) {
       console.warn('[JobContext] Server reset request notice:', err);
     }
     await repository.resetDiscoveryData();
     setActiveJob(null);
+    setJobs((prev) => prev.filter((j) => j.type !== 'discovery'));
     setSources([]);
     setChannels([]);
     setCandidates([]);
@@ -715,6 +731,7 @@ export const JobProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateQueueItemStatus,
         deleteClip,
         dismissJob,
+        retryJob,
         resetDiscoveryData,
       }}
     >

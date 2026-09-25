@@ -8,7 +8,7 @@ import {
   QueueItem,
   MonitoredChannel,
 } from '../../types';
-import { IRepository } from './repository.interface';
+import { IRepository, DiagnosticCounts } from './repository.interface';
 
 const STORAGE_KEYS = {
   WORKSPACE: 'clipflow:v1:workspace',
@@ -388,6 +388,32 @@ export class LocalStorageRepository implements IRepository {
         jobs.filter((j) => j.type !== 'discovery'),
       );
     }
+  }
+
+  async getDiagnosticCounts(): Promise<DiagnosticCounts> {
+    const ws = await this.getWorkspace();
+    const channels = await this.getChannels();
+    const sources = await this.getSources();
+    const candidates = await this.getCandidates();
+    const jobs = await this.getJobs();
+    const discoveryJobs = jobs.filter((j) => j.type === 'discovery');
+
+    return {
+      workspaceId: ws?.id || 'unknown_workspace',
+      firestore: {
+        channels: 0,
+        sources: 0,
+        candidates: 0,
+        jobs: 0,
+      },
+      localStorage: {
+        channels: channels.length,
+        sources: sources.length,
+        candidates: candidates.length,
+        jobs: discoveryJobs.length,
+      },
+      timestamp: new Date().toISOString(),
+    };
   }
 
   async resetAll(): Promise<void> {
